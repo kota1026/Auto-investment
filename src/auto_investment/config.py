@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     novaquity_base_url: str = Field(
         default="https://api.novaquity.net/v1", alias="NOVAQUITY_BASE_URL"
     )
+    alphavantage_api_key: str = Field(default="", alias="ALPHAVANTAGE_API_KEY")
 
     # --- Exchange ---
     # Supported via ccxt: binance, bybit, okx, hyperliquid, kraken, coinbase, ...
