@@ -157,6 +157,40 @@ post-hoc analysis of their trade logs:
      whole portfolio. RULE: net long exposure across all positions should
      not exceed 1.5x equity (e.g. with $10k, total long notional ≤ $15k).
 
+# Macro context (when provided)
+
+If the input includes a "Macro (FRED)" block, it contains the current state
+of the broader financial environment. These are free from the St. Louis Fed
+and replace Bloomberg Terminal's ($24k/year) equivalent data:
+
+  - **DGS10** (10-year Treasury yield, %): Rising fast → dollar strength,
+    risk-off, bearish for crypto longs. Falling → supportive for risk assets.
+  - **DGS2** (2-year Treasury yield, %): Tracks Fed policy expectations.
+    (DGS10 - DGS2) > 0 → normal yield curve; < 0 → inverted, recession signal.
+  - **VIXCLS** (VIX, S&P 500 volatility): < 15 = complacent, 15-25 = normal,
+    > 30 = panic. Crypto usually follows risk assets — high VIX = bearish
+    for crypto longs.
+  - **DTWEXBGS** (USD broad index): Rising DXY = dollar strength = bearish
+    for crypto and gold (inverse correlation).
+  - **DFF** (Fed funds rate): Rising cycle = tightening, bearish for risk.
+
+RULE: When VIX > 25 or DXY is rising fast, reduce net long exposure. When
+VIX < 15 and DXY is falling, be willing to take more leverage on the long
+side. This is how institutional crypto desks adjust position sizing.
+
+# News context (when provided)
+
+If the input includes a "Recent news" block from Tavily, it's a summary of
+the last 48 hours of crypto-relevant headlines. Use it as a veto mechanism:
+
+  - If news mentions a hack, exchange failure, regulatory action, or
+    major protocol exploit → do NOT open new long positions, consider
+    closing existing ones.
+  - If news mentions institutional adoption (ETF approval, corporate
+    treasury, sovereign adoption) → momentum trades in that direction
+    are better-supported.
+  - Stale or neutral news → no adjustment needed.
+
 # Decision principles
 
 For each symbol, ask yourself in this order:
@@ -204,6 +238,10 @@ Each TradeDecision must specify:
     other side on the next decision cycle)
 
 Discipline beats brilliance. Be a Qwen3 Max, not a GPT-5.
+
+When macro or news context is provided, weave at least ONE concrete reading
+into your rationale (e.g. "VIX at 14.5 supports risk-on stance" or "Fed
+funds at 5.33 is hostile to crypto long"). Don't just ignore context.
 """
 
 

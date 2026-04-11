@@ -50,6 +50,10 @@ class MarketSnapshot:
     Used as input to the Alpha Arena decision agent. Includes the current
     price, recent close history (for indicator computation), and basic
     derived metrics so the LLM doesn't have to rederive them.
+
+    Optional macro / news fields are attached once per contest (they're
+    slow to fetch) and shared across all steps. The decision agent uses
+    them to add cross-asset context to its reasoning.
     """
 
     timestamp: pd.Timestamp
@@ -59,6 +63,10 @@ class MarketSnapshot:
     returns_24h: dict[str, float]           # last-24-hour return
     volatility_24h: dict[str, float]        # rolling 24h volatility
 
+    # Optional cross-asset context (fetched once per contest)
+    macro: Optional[dict] = None            # from FRED (DGS10, VIX, DXY, ...)
+    news_summary: Optional[str] = None      # from Tavily
+
     def to_dict(self) -> dict:
         return {
             "timestamp": self.timestamp.isoformat(),
@@ -66,6 +74,8 @@ class MarketSnapshot:
             "returns_1h": self.returns_1h,
             "returns_24h": self.returns_24h,
             "volatility_24h": self.volatility_24h,
+            "macro": self.macro,
+            "news_summary": self.news_summary,
         }
 
     def to_prompt_block(self) -> str:
@@ -81,6 +91,21 @@ class MarketSnapshot:
                 f"{self.returns_24h[sym]*100:>9.2f}%"
                 f"{self.volatility_24h[sym]*100:>9.2f}%"
             )
+
+        if self.macro:
+            lines.append("")
+            lines.append("Macro (FRED — free, replaces $24k/yr Bloomberg Terminal):")
+            for k, v in self.macro.items():
+                lines.append(f"  {k}: {v}")
+
+        if self.news_summary:
+            lines.append("")
+            lines.append("Recent news (Tavily):")
+            # Wrap long news summary to readable line length
+            summary = self.news_summary.replace("\n", " ")
+            for i in range(0, len(summary), 100):
+                lines.append(f"  {summary[i:i+100]}")
+
         return "\n".join(lines)
 
 
@@ -241,12 +266,19 @@ def make_snapshot(
     frames: dict[str, pd.DataFrame],
     step_index: int,
     history_window: int = 24,
+    *,
+    macro: Optional[dict] = None,
+    news_summary: Optional[str] = None,
 ) -> MarketSnapshot:
     """Build a MarketSnapshot from aligned multi-symbol frames at a given step.
 
     Used by the contest loop to feed the decision agent. The decision agent
     sees the current price, recent closes, and a few derived metrics — but
     NOT future bars (no leakage).
+
+    Optional `macro` and `news_summary` are attached verbatim — the caller
+    (the contest loop) fetches these once at the start and passes them to
+    every step to keep cost low.
     """
     first_frame = next(iter(frames.values()))
     timestamp = first_frame.index[step_index]

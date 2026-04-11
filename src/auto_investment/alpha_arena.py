@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from .decision_agent import DecisionBatch, TradeDecision, decide
+from .macro import fetch_macro_snapshot
 from .multi_market import (
     ALPHA_ARENA_UNIVERSE,
     MarketSnapshot,
@@ -33,6 +34,7 @@ from .multi_market import (
     make_snapshot,
     synthetic_multi,
 )
+from .news import fetch_news
 from .perp_sim import PerpAccount, PerpSimulator
 
 logger = logging.getLogger(__name__)
@@ -189,6 +191,28 @@ def run_contest(
     # 2. Initialize simulator
     sim = PerpSimulator(starting_capital=starting_capital)
 
+    # 2b. Fetch macro + news ONCE (these are slow; share across all steps).
+    #     Both are optional — if FRED_API_KEY / TAVILY_API_KEY are unset,
+    #     the fetchers return None and the decision agent just sees prices.
+    #     This is the "free Bloomberg" path from the original $2,600 → $0 post.
+    macro_snapshot = None
+    news_summary = None
+    try:
+        macro_snapshot = fetch_macro_snapshot()
+        if macro_snapshot:
+            logger.info("Fetched macro snapshot (%d series): %s",
+                        len(macro_snapshot), list(macro_snapshot.keys()))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Macro fetch failed: %s", exc)
+
+    try:
+        news_bundle = fetch_news("BTC/USDT")
+        if news_bundle:
+            news_summary = news_bundle.summary
+            logger.info("Fetched news summary: %s", news_summary[:80])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("News fetch failed: %s", exc)
+
     # 3. Run the loop
     equity_curve: list[EquityPoint] = []
     trade_log: list[TradeLogEntry] = []
@@ -198,7 +222,13 @@ def run_contest(
     history_window = 24
 
     for step in range(history_window, n_steps):
-        snapshot = make_snapshot(frames, step, history_window=history_window)
+        snapshot = make_snapshot(
+            frames,
+            step,
+            history_window=history_window,
+            macro=macro_snapshot,
+            news_summary=news_summary,
+        )
 
         # Step the simulator (apply funding, check liquidations)
         liquidated = sim.step(snapshot.prices)

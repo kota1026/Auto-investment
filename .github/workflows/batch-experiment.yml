@@ -73,6 +73,8 @@ jobs:
       - name: Run batch experiment
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           BATCH_N_SEEDS: ${{ github.event.inputs.n_seeds || '10' }}
           BATCH_CAPITAL: ${{ github.event.inputs.capital || '30' }}
           BATCH_DAYS: ${{ github.event.inputs.days || '7' }}
