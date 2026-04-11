@@ -6,23 +6,14 @@ name: Alpha Arena Contest
 #   1. Go to: https://github.com/kota1026/Auto-investment/settings/secrets/actions
 #   2. Click "New repository secret"
 #   3. Name: ANTHROPIC_API_KEY
-#   4. Value: your sk-ant-... key (NEVER commit this to a file)
+#   4. Value: your sk-ant-... key
 #   5. Save
 #
-# RUNNING:
-#   - Manual: Actions tab → "Alpha Arena Contest" → "Run workflow"
-#     Pick capital, days, real_data, then click "Run workflow"
-#   - Scheduled: uncomment the `schedule` block below for daily runs
-#
-# OUTPUT:
-#   - The run summary (Markdown table comparing Claude vs Heuristic) shows up
-#     in the Actions run page directly — no need to download anything
-#   - Full JSON results (equity curve, trade log, decision log) are uploaded
-#     as a workflow artifact you can download for 30 days
-#
-# COST:
-#   - GitHub Actions: free for public repos, 2000 free minutes/month for private
-#   - Anthropic API: ~$2-3 per 30-day contest run with prompt caching
+# After that, every run is fully automated:
+#   - Manual trigger: Actions tab → "Alpha Arena Contest" → "Run workflow"
+#   - Scheduled: runs daily at 06:00 UTC (commented out by default — uncomment to enable)
+#   - Results auto-committed to results/ on the main branch
+#   - Results auto-posted as a comment on the tracking issue
 
 on:
   workflow_dispatch:
@@ -55,19 +46,34 @@ on:
         required: true
         default: "42"
         type: string
+      run_claude:
+        description: "Run the Claude phase (false = heuristic only, free)"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
-  # Uncomment to also run automatically every day at 06:00 UTC
+  # Daily scheduled run — uncomment to enable
   # schedule:
-  #   - cron: "0 6 * * *"
+  #   - cron: "0 6 * * *"  # 06:00 UTC every day
+
+permissions:
+  contents: write       # for auto-committing results
+  issues: write         # for posting to the tracking issue
 
 jobs:
   contest:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # 30-day contest with Claude usually finishes in 10-15 min
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -80,20 +86,65 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run quick test suite (sanity check before burning API credits)
+      - name: Run quick test suite (sanity check)
         run: |
           python -m pytest tests/ -q --no-header
 
-      - name: Run Alpha Arena contest (Heuristic + Claude head-to-head)
+      - name: Run Alpha Arena contest
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CONTEST_CAPITAL: ${{ github.event.inputs.capital }}
-          CONTEST_DAYS: ${{ github.event.inputs.days }}
-          CONTEST_INTERVAL: ${{ github.event.inputs.decision_interval }}
-          CONTEST_REAL_DATA: ${{ github.event.inputs.real_data }}
-          CONTEST_SEED: ${{ github.event.inputs.seed }}
+          CONTEST_CAPITAL: ${{ github.event.inputs.capital || '30' }}
+          CONTEST_DAYS: ${{ github.event.inputs.days || '30' }}
+          CONTEST_INTERVAL: ${{ github.event.inputs.decision_interval || '4' }}
+          CONTEST_REAL_DATA: ${{ github.event.inputs.real_data || 'false' }}
+          CONTEST_SEED: ${{ github.event.inputs.seed || '42' }}
         run: |
-          PYTHONPATH=src python scripts/run_contest_path_a.py
+          if [ "${{ github.event.inputs.run_claude || 'true' }}" = "false" ]; then
+            echo "Running heuristic only (free, fast)"
+            PYTHONPATH=src python -c "
+            from auto_investment.alpha_arena import run_contest
+            import os, json
+            from pathlib import Path
+            from datetime import datetime
+            r = run_contest(
+                starting_capital=float(os.environ['CONTEST_CAPITAL']),
+                duration_days=int(os.environ['CONTEST_DAYS']),
+                decision_interval_hours=int(os.environ['CONTEST_INTERVAL']),
+                use_real_data=os.environ['CONTEST_REAL_DATA'].lower()=='true',
+                use_ai=False,
+                seed=int(os.environ['CONTEST_SEED']),
+            )
+            out = Path('contest_results'); out.mkdir(exist_ok=True)
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            (out / f'heuristic_{ts}.json').write_text(json.dumps(r.to_dict(), indent=2, default=str))
+            print(f\"\${r.starting_capital} -> \${r.final_equity:.2f} ({r.total_return_pct:+.2f}%) Sharpe {r.sharpe:.2f}\")
+            "
+          else
+            PYTHONPATH=src python scripts/run_contest_path_a.py
+          fi
+
+      - name: Update result history (auto_track)
+        run: |
+          PYTHONPATH=src python scripts/auto_track.py
+
+      - name: Post results to tracking GitHub Issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          PYTHONPATH=src python scripts/post_results_issue.py
+
+      - name: Commit results to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/ || true
+          if git diff --staged --quiet; then
+            echo "No new results to commit"
+          else
+            git commit -m "Auto: contest results $(date -u +%Y-%m-%d)"
+            git push
+          fi
 
       - name: Upload contest results as artifact
         if: always()
@@ -102,3 +153,20 @@ jobs:
           name: contest-results-${{ github.run_id }}
           path: contest_results/
           retention-days: 30
+
+      - name: Optional Discord notification
+        if: env.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          # Find the latest result file
+          LATEST=$(ls -t contest_results/*.json 2>/dev/null | head -1 || true)
+          if [ -z "$LATEST" ]; then exit 0; fi
+          SUMMARY=$(python -c "
+          import json, sys
+          d = json.load(open('$LATEST'))
+          print(f\"Auto-Investment contest done | \${d['starting_capital']:.0f} -> \${d['final_equity']:.2f} ({d['total_return_pct']:+.2f}%) | Sharpe {d['sharpe']:+.2f} | vs BTC {d['alpha_vs_benchmark']:+.2f}%\")
+          ")
+          curl -X POST -H "Content-Type: application/json" \
+            -d "{\"content\": \"$SUMMARY\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true
