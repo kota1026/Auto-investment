@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai_advisor import evaluate_signal
+from .alpha_arena import run_contest
 from .backtest import run_backtest
 from .config import settings
 from .context import MarketContext
@@ -251,6 +252,49 @@ def optimize(
     return payload
 
 
+@app.post("/api/contest")
+def contest(
+    starting_capital: float = 30.0,
+    duration_days: int = 30,
+    decision_interval_hours: int = 4,
+    use_real_data: bool = False,
+    use_ai: bool = False,
+    seed: int = 42,
+) -> dict:
+    """Run an Alpha Arena style contest end-to-end.
+
+    Replicates the Nof1 Alpha Arena format: multi-symbol crypto perpetual
+    futures (BTC/ETH/SOL by default), cross-margin USDC account, hourly
+    funding, taker fees, slippage, liquidations. The decision agent (Claude
+    or heuristic) makes trade decisions every `decision_interval_hours`.
+
+    Query params:
+      - starting_capital: USD account size (Alpha Arena uses $10,000)
+      - duration_days: contest length in days
+      - decision_interval_hours: how often the agent decides (default 4)
+      - use_real_data: True → yfinance hourly bars; False → synthetic
+      - use_ai: True → Claude Opus 4.6; False → disciplined heuristic baseline
+      - seed: synthetic data seed for reproducibility
+
+    Returns the full ContestResult with equity curve, trade log, decision log,
+    and risk-adjusted return stats. Compare your AI run against the heuristic
+    baseline (use_ai=false) to isolate the LLM's actual contribution.
+    """
+    try:
+        result = run_contest(
+            starting_capital=starting_capital,
+            duration_days=duration_days,
+            decision_interval_hours=decision_interval_hours,
+            use_real_data=use_real_data,
+            use_ai=use_ai,
+            seed=seed,
+        )
+        return result.to_dict()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Contest run failed: %s", exc)
+        return {"error": str(exc)}
+
+
 @app.post("/api/thesis")
 def thesis(symbol: str | None = None, limit: int = 300) -> dict:
     """Run the Dexter-inspired multi-agent thesis builder.
@@ -334,8 +378,6 @@ def _build_context_for_request(df) -> MarketContext:
 @app.post("/api/improve")
 def improve(limit: int = 1000, mode: str = "P2", max_iterations: int = 5) -> dict:
     """Run the JSAI-paper-inspired iterative improvement loop.
-
-    Implements the Kawamura/Kubo/Nakagawa (2026) feedback design experiment
     adapted to our crypto-EMA-RSI strategy. The LLM is shown backtest metrics
     + (depending on mode) IC/factor exposure + (P3) recent price action, and
     iteratively proposes parameter changes until APPROVED or `max_iterations`.

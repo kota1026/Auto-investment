@@ -189,6 +189,25 @@
           </div>
         </div>
         <div class="panel">
+          <h3>Alpha Arena (Nof1 format)</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+            <input id="contest-capital" type="number" value="30" min="10" step="10" placeholder="Capital" style="background: #0a0d12; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 4px; padding: 6px; font-size: 12px;" />
+            <input id="contest-days" type="number" value="30" min="7" max="180" step="1" placeholder="Days" style="background: #0a0d12; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 4px; padding: 6px; font-size: 12px;" />
+          </div>
+          <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+            <label style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
+              <input id="contest-ai" type="checkbox" /> Use Claude
+            </label>
+            <label style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
+              <input id="contest-real" type="checkbox" /> Real data
+            </label>
+          </div>
+          <button id="contest-btn" style="width: 100%;">Run Contest</button>
+          <div id="contest-box" class="empty" style="margin-top: 8px;">
+            BTC/ETH/SOL perp portfolio · cross margin · funding · liquidations.
+          </div>
+        </div>
+        <div class="panel">
           <h3>Backtest Stats</h3>
           <dl class="stats" id="bt-stats">
             <dt>Trades</dt><dd>—</dd>

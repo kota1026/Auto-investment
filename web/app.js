@@ -340,6 +340,74 @@ function renderImprove(data) {
   `;
 }
 
+async function runContest() {
+  const btn = document.getElementById("contest-btn");
+  const box = document.getElementById("contest-box");
+  const capital = document.getElementById("contest-capital").value || 30;
+  const days = document.getElementById("contest-days").value || 30;
+  const useAi = document.getElementById("contest-ai").checked;
+  const useReal = document.getElementById("contest-real").checked;
+
+  btn.disabled = true;
+  btn.textContent = useAi ? "Claude trading..." : "Simulating...";
+  box.className = "";
+  box.innerHTML = `<div class="empty">Running ${days}-day contest with $${capital} starting capital...</div>`;
+
+  try {
+    const url = `/api/contest?starting_capital=${capital}&duration_days=${days}&use_ai=${useAi}&use_real_data=${useReal}&seed=42`;
+    const r = await fetch(url, { method: "POST" });
+    if (!r.ok) throw new Error(`contest HTTP ${r.status}`);
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    renderContest(data);
+  } catch (e) {
+    box.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run Contest";
+  }
+}
+
+function renderContest(data) {
+  const box = document.getElementById("contest-box");
+  const alphaPos = data.alpha_vs_benchmark >= 0;
+  const equity = data.equity_curve;
+  const minEq = Math.min(...equity.map((p) => p.equity));
+  const maxEq = Math.max(...equity.map((p) => p.equity));
+  // ASCII sparkline
+  const spark = "▁▂▃▄▅▆▇█";
+  const sparkLine = equity
+    .filter((_, i) => i % Math.ceil(equity.length / 40) === 0)
+    .map((p) => {
+      const idx = Math.floor(((p.equity - minEq) / Math.max(maxEq - minEq, 0.001)) * (spark.length - 1));
+      return spark[Math.max(0, Math.min(spark.length - 1, idx))];
+    })
+    .join("");
+
+  const lastDecisions = data.decision_log.slice(-2).map((d) => {
+    const decs = d.decisions
+      .filter((x) => x.action !== "hold")
+      .map((x) => `${x.symbol}:${x.action}`)
+      .join(", ") || "all hold";
+    return `<div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">${d.timestamp.slice(0, 10)} · ${decs}</div>`;
+  }).join("");
+
+  box.innerHTML = `
+    <div style="font-size: 12px; line-height: 1.6;">
+      <div><strong>$${data.starting_capital}</strong> → <strong style="color: ${data.total_return_pct >= 0 ? '#22c55e' : '#ef4444'}">$${data.final_equity.toFixed(2)}</strong> (${data.total_return_pct >= 0 ? '+' : ''}${data.total_return_pct.toFixed(2)}%)</div>
+      <div>BTC HODL benchmark: ${data.benchmark_return_pct >= 0 ? '+' : ''}${data.benchmark_return_pct.toFixed(2)}%</div>
+      <div>Alpha vs BTC: <strong style="color: ${alphaPos ? '#22c55e' : '#ef4444'}">${alphaPos ? '+' : ''}${data.alpha_vs_benchmark.toFixed(2)}%</strong></div>
+    </div>
+    <pre style="font-size: 14px; color: #22d3ee; margin: 8px 0; line-height: 1; letter-spacing: -1px;">${sparkLine}</pre>
+    <div style="font-size: 11px; color: #94a3b8;">
+      Sharpe ${data.sharpe.toFixed(2)} · Sortino ${data.sortino.toFixed(2)} · MaxDD ${data.max_drawdown_pct.toFixed(1)}%<br>
+      ${data.n_decisions} decisions · ${data.n_trades} trades · ${data.n_liquidations} liquidations<br>
+      Fees $${data.fees_paid.toFixed(2)} · Funding $${data.funding_paid.toFixed(2)} · ${data.used_ai ? 'Claude' : 'Heuristic'}
+    </div>
+    ${lastDecisions ? `<div style="margin-top: 6px;"><strong style="font-size: 11px; color: #94a3b8;">Recent decisions:</strong>${lastDecisions}</div>` : ""}
+  `;
+}
+
 async function init() {
   initCharts();
   try {
@@ -352,6 +420,7 @@ async function init() {
   document.getElementById("context-btn").addEventListener("click", refreshContext);
   document.getElementById("optimize-btn").addEventListener("click", runOptimize);
   document.getElementById("improve-btn").addEventListener("click", runImprove);
+  document.getElementById("contest-btn").addEventListener("click", runContest);
 }
 
 init();
