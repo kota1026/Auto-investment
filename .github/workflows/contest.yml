@@ -1,0 +1,104 @@
+name: Alpha Arena Contest
+
+# Run a Claude-vs-Heuristic Alpha Arena contest in the cloud.
+#
+# SETUP (one-time, ~2 minutes):
+#   1. Go to: https://github.com/kota1026/Auto-investment/settings/secrets/actions
+#   2. Click "New repository secret"
+#   3. Name: ANTHROPIC_API_KEY
+#   4. Value: your sk-ant-... key (NEVER commit this to a file)
+#   5. Save
+#
+# RUNNING:
+#   - Manual: Actions tab → "Alpha Arena Contest" → "Run workflow"
+#     Pick capital, days, real_data, then click "Run workflow"
+#   - Scheduled: uncomment the `schedule` block below for daily runs
+#
+# OUTPUT:
+#   - The run summary (Markdown table comparing Claude vs Heuristic) shows up
+#     in the Actions run page directly — no need to download anything
+#   - Full JSON results (equity curve, trade log, decision log) are uploaded
+#     as a workflow artifact you can download for 30 days
+#
+# COST:
+#   - GitHub Actions: free for public repos, 2000 free minutes/month for private
+#   - Anthropic API: ~$2-3 per 30-day contest run with prompt caching
+
+on:
+  workflow_dispatch:
+    inputs:
+      capital:
+        description: "Starting capital in USD"
+        required: true
+        default: "30"
+        type: string
+      days:
+        description: "Contest duration in days"
+        required: true
+        default: "30"
+        type: string
+      decision_interval:
+        description: "Hours between decisions (4 = Nof1 standard)"
+        required: true
+        default: "4"
+        type: string
+      real_data:
+        description: "Use yfinance real BTC/ETH/SOL data (false = synthetic)"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      seed:
+        description: "Synthetic data seed (ignored when real_data=true)"
+        required: true
+        default: "42"
+        type: string
+
+  # Uncomment to also run automatically every day at 06:00 UTC
+  # schedule:
+  #   - cron: "0 6 * * *"
+
+jobs:
+  contest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # 30-day contest with Claude usually finishes in 10-15 min
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run quick test suite (sanity check before burning API credits)
+        run: |
+          python -m pytest tests/ -q --no-header
+
+      - name: Run Alpha Arena contest (Heuristic + Claude head-to-head)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CONTEST_CAPITAL: ${{ github.event.inputs.capital }}
+          CONTEST_DAYS: ${{ github.event.inputs.days }}
+          CONTEST_INTERVAL: ${{ github.event.inputs.decision_interval }}
+          CONTEST_REAL_DATA: ${{ github.event.inputs.real_data }}
+          CONTEST_SEED: ${{ github.event.inputs.seed }}
+        run: |
+          PYTHONPATH=src python scripts/run_contest_path_a.py
+
+      - name: Upload contest results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contest-results-${{ github.run_id }}
+          path: contest_results/
+          retention-days: 30

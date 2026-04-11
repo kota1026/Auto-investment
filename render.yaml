@@ -1,0 +1,38 @@
+# Render.com one-click deploy config.
+#
+# To deploy:
+#   1. Push this repo to GitHub (already done — kota1026/Auto-investment)
+#   2. Go to https://render.com → "New" → "Blueprint"
+#   3. Connect this GitHub repo
+#   4. Render reads this file and provisions the service
+#   5. After it deploys, go to the service → Environment → add:
+#        ANTHROPIC_API_KEY = sk-ant-...
+#      (Render encrypts secrets at rest and never shows them after entry)
+#   6. The dashboard becomes available at https://auto-investment.onrender.com
+#
+# Cost: free tier sleeps after 15 min idle. $7/month for always-on.
+
+services:
+  - type: web
+    name: auto-investment
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free  # Or "starter" for $7/month always-on
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false  # Set in Render dashboard, NOT in this file
+      - key: AI_ENABLED
+        value: "true"
+      - key: AI_MODEL
+        value: claude-opus-4-6
+      - key: SYMBOL
+        value: BTC/USDT
+      - key: TIMEFRAME
+        value: "1h"
+      - key: EQUITY_USD
+        value: "30"
+      - key: RISK_PER_TRADE
+        value: "0.02"
+      - key: EXCHANGE_TESTNET
+        value: "true"
