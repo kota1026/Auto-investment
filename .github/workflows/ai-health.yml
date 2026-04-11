@@ -1,0 +1,48 @@
+name: AI Health Check
+
+# Quick 1-minute diagnostic that verifies Claude API works in CI.
+# Run this BEFORE burning credits on a full contest to confirm:
+#   1. ANTHROPIC_API_KEY is registered correctly in Secrets
+#   2. anthropic SDK version supports our code path
+#   3. claude-opus-4-6 is accessible
+#   4. output_config.format + adaptive thinking work together
+#   5. DecisionBatch schema round-trips cleanly
+#
+# Exit codes from scripts/check_claude.py:
+#   0 = all checks passed, Claude is ready for the contest
+#   1 = API key missing or wrong
+#   2 = SDK import failed
+#   3 = API call failed (usually: wrong key / no credits)
+#   4 = structured outputs failed (usually: old SDK version)
+#   5 = Pydantic validation failed
+#
+# Cost: ~$0.01 per run (3 tiny API calls)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Claude health check
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PYTHONPATH=src python scripts/check_claude.py

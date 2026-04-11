@@ -250,6 +250,56 @@ funds at 5.33 is hostile to crypto long"). Don't just ignore context.
 # -----------------------------------------------------------------------------
 
 
+# -----------------------------------------------------------------------------
+# Explicit JSON schema (used directly with messages.create + output_config)
+# -----------------------------------------------------------------------------
+#
+# We deliberately DON'T use messages.parse() with the Pydantic model because:
+#   1. messages.parse() requires a recent anthropic SDK and older versions
+#      installed via requirements.txt can silently break it
+#   2. Pydantic Field(ge=X, le=Y) constraints aren't always cleanly translated
+#      to JSON schema for the API
+#   3. The explicit dict schema below is the most portable path — it works
+#      on any SDK version that has messages.create()
+#
+# The response is JSON text. We parse it manually with json.loads() and then
+# validate with Pydantic (which DOES support constraints client-side).
+_DECISION_JSON_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "decisions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["open_long", "open_short", "close", "hold"],
+                    },
+                    "size_pct_of_equity": {"type": "number"},
+                    "leverage": {"type": "number"},
+                    "confidence": {"type": "number"},
+                    "rationale": {"type": "string"},
+                },
+                "required": ["symbol", "action", "confidence", "rationale"],
+                "additionalProperties": False,
+            },
+        },
+        "overall_thesis": {"type": "string"},
+    },
+    "required": ["decisions", "overall_thesis"],
+    "additionalProperties": False,
+}
+
+
+# Module-level counters for one-shot diagnostic logging
+_claude_call_count = 0
+_claude_success_count = 0
+_claude_failure_count = 0
+_first_error_logged = False
+
+
 def decide(
     snapshot: MarketSnapshot,
     account: PerpAccount,
@@ -262,21 +312,34 @@ def decide(
     Falls back to a deterministic disciplined-momentum heuristic when AI is
     disabled or fails — that way the contest can run end-to-end without an
     API key for testing.
+
+    Implementation notes:
+      - Uses `messages.create()` with an explicit JSON schema via
+        `output_config.format`, not `messages.parse()`. More portable
+        across SDK versions.
+      - Parses the response text manually with json.loads, then validates
+        with Pydantic for type safety.
+      - Logs the first failure at full volume so diagnosis is possible;
+        subsequent failures get a terse counter.
     """
+    global _claude_call_count, _claude_success_count, _claude_failure_count, _first_error_logged
+
     if not (use_ai and settings.ai_enabled and settings.anthropic_api_key):
         return _heuristic_decide(snapshot, account, universe)
 
+    _claude_call_count += 1
+
     try:
+        import json as _json  # noqa: PLC0415
         import anthropic  # noqa: PLC0415
 
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         user_message = _build_user_message(snapshot, account, universe)
 
-        response = client.messages.parse(
+        response = client.messages.create(
             model=settings.ai_model,
-            max_tokens=2048,
+            max_tokens=4096,
             thinking={"type": "adaptive"},
-            output_config={"effort": "medium"},
             system=[
                 {
                     "type": "text",
@@ -285,15 +348,104 @@ def decide(
                 }
             ],
             messages=[{"role": "user", "content": user_message}],
-            output_format=DecisionBatch,
+            output_config={
+                "effort": "medium",
+                "format": {
+                    "type": "json_schema",
+                    "schema": _DECISION_JSON_SCHEMA,
+                },
+            },
         )
-        if response.parsed_output is None:
-            logger.warning("Decision agent returned no parsed output; using heuristic")
+
+        # Extract the first text block
+        text_parts = [
+            getattr(b, "text", "")
+            for b in response.content
+            if getattr(b, "type", None) == "text"
+        ]
+        text = "".join(text_parts).strip()
+
+        if not text:
+            _claude_failure_count += 1
+            if not _first_error_logged:
+                logger.error(
+                    "Claude returned no text content. Full response: %r", response
+                )
+                _first_error_logged = True
             return _heuristic_decide(snapshot, account, universe)
-        return response.parsed_output
+
+        try:
+            data = _json.loads(text)
+        except _json.JSONDecodeError as je:
+            _claude_failure_count += 1
+            if not _first_error_logged:
+                logger.error("Claude returned non-JSON text: %s; error: %s", text[:500], je)
+                _first_error_logged = True
+            return _heuristic_decide(snapshot, account, universe)
+
+        try:
+            batch = DecisionBatch.model_validate(data)
+        except Exception as ve:  # noqa: BLE001
+            _claude_failure_count += 1
+            if not _first_error_logged:
+                logger.error("Claude JSON failed Pydantic validation: %s; data: %s", ve, data)
+                _first_error_logged = True
+            return _heuristic_decide(snapshot, account, universe)
+
+        _claude_success_count += 1
+        usage = getattr(response, "usage", None)
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        if _claude_success_count == 1:
+            logger.info(
+                "[Claude] FIRST SUCCESS — %d decisions, thesis: %s (cache_read=%d, cache_create=%d)",
+                len(batch.decisions),
+                batch.overall_thesis[:80],
+                cache_read,
+                cache_create,
+            )
+        elif _claude_success_count % 10 == 0:
+            logger.info(
+                "[Claude] Success count: %d / calls: %d / failures: %d",
+                _claude_success_count,
+                _claude_call_count,
+                _claude_failure_count,
+            )
+        return batch
+
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Decision agent failed (%s); using heuristic", exc)
+        _claude_failure_count += 1
+        if not _first_error_logged:
+            logger.exception(
+                "Claude API call FAILED at decision %d. Full traceback below. "
+                "Falling back to heuristic. Fix this before trusting contest results!",
+                _claude_call_count,
+            )
+            logger.error("Exception type: %s, message: %s", type(exc).__name__, exc)
+            _first_error_logged = True
         return _heuristic_decide(snapshot, account, universe)
+
+
+def get_claude_stats() -> dict:
+    """Return Claude API call statistics for the current process.
+
+    The contest loop calls this after run_contest() to surface how many
+    decisions actually went through Claude vs fell back to heuristic.
+    """
+    return {
+        "calls": _claude_call_count,
+        "successes": _claude_success_count,
+        "failures": _claude_failure_count,
+    }
+
+
+def reset_claude_stats() -> None:
+    """Reset counters between contest runs."""
+    global _claude_call_count, _claude_success_count, _claude_failure_count, _first_error_logged
+    _claude_call_count = 0
+    _claude_success_count = 0
+    _claude_failure_count = 0
+    _first_error_logged = False
 
 
 def _build_user_message(

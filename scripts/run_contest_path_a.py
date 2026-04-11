@@ -46,7 +46,18 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+import logging  # noqa: E402
+
+# Configure logging so the decision_agent's diagnostic logs (first Claude
+# success, first Claude failure with full traceback) actually show up in
+# the GitHub Actions workflow output. Without this, logger.info() is silent.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
 from auto_investment.alpha_arena import run_contest  # noqa: E402
+from auto_investment.decision_agent import get_claude_stats, reset_claude_stats  # noqa: E402
 
 
 # -----------------------------------------------------------------------------
@@ -163,15 +174,31 @@ def main() -> int:
     print("Prompt caching reduces repeat input cost by ~90% after the first call.")
     print("Be patient — this loop is sequential (no batching).\n")
 
+    reset_claude_stats()
     t0 = time.monotonic()
     claude_result = run_contest(use_ai=True, **CONTEST_CONFIG)
     c_secs = time.monotonic() - t0
     c_dict = claude_result.to_dict()
     c_path = save_result(c_dict, "claude", timestamp)
-    actual_cost = estimate_cost(c_dict["n_decisions"])
+    stats = get_claude_stats()
+    actual_cost = estimate_cost(stats["successes"])
     print(f"\nDone in {c_secs:.1f}s. Saved: {c_path}")
+    print(
+        f"Claude stats: {stats['successes']}/{stats['calls']} calls succeeded, "
+        f"{stats['failures']} failed"
+    )
     print(f"Estimated API spend: ${actual_cost:.2f}")
     print(short_summary(c_dict, "CLAUDE"))
+
+    if stats["successes"] == 0 and stats["calls"] > 0:
+        print()
+        print("*" * 70)
+        print("  WARNING: ALL Claude calls fell back to heuristic!")
+        print("  Check the logs above for '[ERROR] Claude API call FAILED'")
+        print("  The Heuristic and Claude results will be IDENTICAL in this case.")
+        print("  Run `scripts/check_claude.py` locally or via the")
+        print("  'AI Health Check' workflow to diagnose.")
+        print("*" * 70)
 
     # -----------------------------------------------------------------------
     # Comparison
