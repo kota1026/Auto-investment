@@ -284,6 +284,62 @@ function renderOptimize(data) {
   `;
 }
 
+async function runImprove() {
+  const btn = document.getElementById("improve-btn");
+  const box = document.getElementById("improve-box");
+  const mode = document.getElementById("improve-mode").value;
+  btn.disabled = true;
+  btn.textContent = "Running…";
+  box.className = "";
+  box.innerHTML = `<div class="empty">Running improvement loop in mode ${mode} (this may take a moment — Claude is iterating)…</div>`;
+
+  try {
+    const r = await fetch(`/api/improve?mode=${mode}&max_iterations=5&limit=1000`, { method: "POST" });
+    if (!r.ok) throw new Error(`improve HTTP ${r.status}`);
+    const data = await r.json();
+    renderImprove(data);
+  } catch (e) {
+    box.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run Loop";
+  }
+}
+
+function renderImprove(data) {
+  const box = document.getElementById("improve-box");
+  if (data.error) {
+    box.innerHTML = `<div class="empty">${escapeHtml(data.error)}</div>`;
+    return;
+  }
+  const before = data.initial_metrics;
+  const after = data.final_metrics;
+  const beforeSharpe = before.icir.toFixed(2);
+  const afterSharpe = after.icir.toFixed(2);
+  const historyHtml = data.history.map((h, i) => {
+    const p = h.proposal;
+    return `
+      <div style="margin-top: 10px; padding: 8px; background: #0a0d12; border-left: 3px solid ${h.approved ? '#22c55e' : '#22d3ee'}; border-radius: 0 4px 4px 0;">
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">
+          Iteration ${h.iteration} ${h.approved ? '· APPROVED' : ''} · trades=${h.metrics.n_trades} · winR=${(h.metrics.win_rate*100).toFixed(0)}% · ret=${h.metrics.total_return_pct.toFixed(1)}% · ICIR=${h.metrics.icir.toFixed(2)}
+        </div>
+        <div style="font-size: 12px; line-height: 1.4;">${escapeHtml(p.rationale || '')}</div>
+        ${p.expected_change ? `<div style="font-size: 11px; color: #facc15; margin-top: 4px;">→ ${escapeHtml(p.expected_change)}</div>` : ""}
+      </div>`;
+  }).join("");
+
+  box.innerHTML = `
+    <div style="font-size: 12px; color: #94a3b8;">
+      Mode <strong>${data.mode}</strong> · ${data.iterations_used} iterations · ${data.converged ? '<span style="color: #22c55e;">CONVERGED</span>' : '<span style="color: #facc15;">stopped</span>'}
+    </div>
+    <div style="font-size: 12px; margin-top: 6px;">
+      <strong>Before:</strong> ret ${before.total_return_pct.toFixed(1)}% · DD ${before.max_drawdown_pct.toFixed(1)}% · ICIR ${beforeSharpe}<br>
+      <strong>After:</strong>&nbsp; ret ${after.total_return_pct.toFixed(1)}% · DD ${after.max_drawdown_pct.toFixed(1)}% · ICIR ${afterSharpe}
+    </div>
+    ${historyHtml}
+  `;
+}
+
 async function init() {
   initCharts();
   try {
@@ -295,6 +351,7 @@ async function init() {
   document.getElementById("evaluate-btn").addEventListener("click", runEvaluation);
   document.getElementById("context-btn").addEventListener("click", refreshContext);
   document.getElementById("optimize-btn").addEventListener("click", runOptimize);
+  document.getElementById("improve-btn").addEventListener("click", runImprove);
 }
 
 init();

@@ -175,6 +175,20 @@
           </div>
         </div>
         <div class="panel">
+          <h3>Improvement Loop (JSAI 2026)</h3>
+          <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+            <select id="improve-mode" style="flex: 1; background: #0a0d12; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 4px; padding: 6px; font-size: 12px;">
+              <option value="P1">P1 — basic only</option>
+              <option value="P2" selected>P2 — basic + IC + factors</option>
+              <option value="P3">P3 — P2 + price series</option>
+            </select>
+            <button id="improve-btn" style="flex: 1;">Run Loop</button>
+          </div>
+          <div id="improve-box" class="empty" style="margin-top: 4px;">
+            Iterative Claude-driven param tuning, Kawamura et al. style.
+          </div>
+        </div>
+        <div class="panel">
           <h3>Backtest Stats</h3>
           <dl class="stats" id="bt-stats">
             <dt>Trades</dt><dd>—</dd>

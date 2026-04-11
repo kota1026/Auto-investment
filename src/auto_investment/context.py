@@ -30,6 +30,10 @@ class MarketContext:
     # Novaquity fundamental / supply-chain data (Japanese stocks only)
     fundamentals: Optional[dict[str, Any]] = None
 
+    # IC / ICIR signal-quality summary (from the JSAI paper). Single string
+    # like "IC mean=+0.0123, std=0.0567, ICIR=+0.217 (240 obs)".
+    ic_summary: Optional[str] = None
+
     def to_prompt_section(self) -> str:
         """Render the optional context as markdown the LLM can parse.
 
@@ -62,5 +66,13 @@ class MarketContext:
                 f"  - {k}: {v}" for k, v in self.fundamentals.items() if v is not None
             )
             sections.append(f"## Fundamentals (Novaquity)\n{fund_lines}")
+
+        if self.ic_summary:
+            sections.append(
+                f"## Signal Quality (IC / ICIR)\n  {self.ic_summary}\n"
+                "  (Higher absolute IC and ICIR means the upstream signal is "
+                "more predictive. Per Kawamura et al. JSAI 2026, this is a "
+                "stronger health check than P&L alone.)"
+            )
 
         return "\n\n".join(sections) if sections else ""

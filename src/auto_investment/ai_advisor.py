@@ -139,6 +139,12 @@ say "RSI is 62 and price is 1.8 ATR above EMA-slow" instead.
   - When optional context sections (news/macro/fundamentals) are absent,
     proceed with technicals + forecast alone — don't penalize confidence
     just because context is missing.
+  - If a Signal Quality (IC/ICIR) section is present, treat it as a primary
+    health check on the upstream signal. A negative or near-zero IC means
+    the underlying signal isn't predictive and you should be skeptical of
+    the candidate even if other context looks supportive. Per Kawamura,
+    Kubo & Nakagawa (JSAI 2026), IC/ICIR are stronger health signals than
+    P&L alone, especially over short windows.
 """
 
 

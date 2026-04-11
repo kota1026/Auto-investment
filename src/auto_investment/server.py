@@ -27,6 +27,8 @@ from .config import settings
 from .context import MarketContext
 from .data import fetch_ohlcv
 from .forecaster import forecast_close
+from .ic import forward_returns, ic_report, signal_from_indicators
+from .improvement_loop import FeedbackMode, run_improvement_loop
 from .indicators import add_indicators
 from .macro import fetch_macro_snapshot
 from .news import fetch_news
@@ -308,6 +310,16 @@ def _build_context_for_request(df) -> MarketContext:
         if snap is not None:
             fundamentals = snap.to_dict()
 
+    # Compute IC summary on the indicator-augmented frame
+    df_ind = add_indicators(df)
+    try:
+        sig = signal_from_indicators(df_ind)
+        fwd = forward_returns(df_ind["close"], horizon=1)
+        ic_summary = ic_report(sig, fwd).summary()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("IC computation failed: %s", exc)
+        ic_summary = None
+
     return MarketContext(
         recent_bars=recent_bars,
         forecast=forecast,
@@ -315,7 +327,38 @@ def _build_context_for_request(df) -> MarketContext:
         news_items=news_bundle.items if news_bundle else [],
         macro_snapshot=macro,
         fundamentals=fundamentals,
+        ic_summary=ic_summary,
     )
+
+
+@app.post("/api/improve")
+def improve(limit: int = 1000, mode: str = "P2", max_iterations: int = 5) -> dict:
+    """Run the JSAI-paper-inspired iterative improvement loop.
+
+    Implements the Kawamura/Kubo/Nakagawa (2026) feedback design experiment
+    adapted to our crypto-EMA-RSI strategy. The LLM is shown backtest metrics
+    + (depending on mode) IC/factor exposure + (P3) recent price action, and
+    iteratively proposes parameter changes until APPROVED or `max_iterations`.
+
+    Query params:
+      - limit: bars to backtest against
+      - mode: "P1" (basic) | "P2" (basic + IC + factors) | "P3" (P2 + price series)
+      - max_iterations: cap on loop iterations
+    """
+    df = fetch_ohlcv(limit=limit)
+    try:
+        feedback_mode = FeedbackMode(mode.upper())
+    except ValueError:
+        return {"error": f"invalid mode {mode!r}; use P1, P2, or P3"}
+
+    result = run_improvement_loop(
+        df,
+        mode=feedback_mode,
+        max_iterations=max_iterations,
+        initial_equity=settings.equity_usd,
+        risk_per_trade=settings.risk_per_trade,
+    )
+    return result.to_dict()
 
 
 def _isnan(x) -> bool:
