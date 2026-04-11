@@ -25,9 +25,13 @@ import time
 
 from .ai_advisor import evaluate_signal
 from .config import settings
+from .context import MarketContext
 from .data import fetch_ohlcv
 from .forecaster import forecast_close
 from .indicators import add_indicators
+from .macro import fetch_macro_snapshot
+from .news import fetch_news
+from .novaquity import fetch_fundamentals
 from .risk import build_trade_plan
 from .strategy import generate_signals, latest_signal
 
@@ -46,25 +50,11 @@ def run_once() -> dict:
 
     logger.info("Candidate signal: %s @ %.2f", sig.side, sig.price)
 
-    # Optional forecast layer
-    try:
-        fc = forecast_close(df["close"], horizon=24)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Forecast failed: %s", exc)
-        fc = None
+    # Build the full MarketContext — every layer is optional and degrades
+    # gracefully when its provider is unavailable.
+    context = _build_context(df)
 
-    # AI confirmation
-    recent_bars = [
-        {
-            "timestamp": ts.isoformat(),
-            "open": float(row["open"]),
-            "high": float(row["high"]),
-            "low": float(row["low"]),
-            "close": float(row["close"]),
-        }
-        for ts, row in df.tail(30).iterrows()
-    ]
-    verdict = evaluate_signal(sig, recent_bars, fc)
+    verdict = evaluate_signal(sig, context)
     logger.info(
         "AI verdict: %s @ %.2f — %s",
         verdict.action,
@@ -99,6 +89,49 @@ def run_once() -> dict:
         "plan": plan.to_dict(),
         "order": order_result,
     }
+
+
+def _build_context(df) -> MarketContext:
+    """Assemble all optional context for the AI advisor.
+
+    Each provider is best-effort: if a service is unconfigured or fails, the
+    corresponding section is just left empty and the prompt skips it.
+    """
+    recent_bars = [
+        {
+            "timestamp": ts.isoformat(),
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "close": float(row["close"]),
+        }
+        for ts, row in df.tail(30).iterrows()
+    ]
+
+    try:
+        forecast = forecast_close(df["close"], horizon=24)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Forecast failed: %s", exc)
+        forecast = None
+
+    news_bundle = fetch_news(settings.symbol)
+    macro = fetch_macro_snapshot()
+
+    fundamentals = None
+    # Novaquity is Japanese-equity only — only call it for ticker-style symbols
+    if settings.symbol.isdigit() and len(settings.symbol) == 4:
+        snap = fetch_fundamentals(settings.symbol)
+        if snap is not None:
+            fundamentals = snap.to_dict()
+
+    return MarketContext(
+        recent_bars=recent_bars,
+        forecast=forecast,
+        news_summary=news_bundle.summary if news_bundle else None,
+        news_items=news_bundle.items if news_bundle else [],
+        macro_snapshot=macro,
+        fundamentals=fundamentals,
+    )
 
 
 def _submit_market_order(plan, symbol: str) -> dict:

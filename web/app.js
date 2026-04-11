@@ -170,6 +170,120 @@ function escapeHtml(s) {
     .replaceAll('"', "&quot;");
 }
 
+async function refreshContext() {
+  const btn = document.getElementById("context-btn");
+  const box = document.getElementById("context-box");
+  btn.disabled = true;
+  btn.textContent = "Loading…";
+  try {
+    const r = await fetch("/api/context?limit=300");
+    if (!r.ok) throw new Error(`context HTTP ${r.status}`);
+    const data = await r.json();
+    renderContext(data);
+  } catch (e) {
+    box.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Refresh Context";
+  }
+}
+
+function renderContext(data) {
+  const box = document.getElementById("context-box");
+  const parts = [];
+
+  if (data.forecast) {
+    const fc = data.forecast;
+    const first = fc.point[0];
+    const last = fc.point[fc.point.length - 1];
+    const ch = (((last - first) / first) * 100).toFixed(2);
+    parts.push(`<div><strong>Forecast (${fc.backend}):</strong> ${first.toFixed(2)} → ${last.toFixed(2)} (${ch}%)</div>`);
+  }
+
+  if (data.news && data.news.summary) {
+    parts.push(`<div style="margin-top: 8px;"><strong>News:</strong> ${escapeHtml(data.news.summary)}</div>`);
+    if (data.news.items && data.news.items.length) {
+      const items = data.news.items.slice(0, 3).map((i) =>
+        `<li><a href="${escapeHtml(i.url)}" target="_blank" rel="noopener" style="color: #22d3ee;">${escapeHtml(i.title || i.source)}</a></li>`
+      ).join("");
+      parts.push(`<ul class="verdict-obs">${items}</ul>`);
+    }
+  } else {
+    parts.push(`<div class="empty" style="margin-top: 6px;">News: not configured (set TAVILY_API_KEY)</div>`);
+  }
+
+  if (data.macro) {
+    const lines = Object.entries(data.macro).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("");
+    parts.push(`<div style="margin-top: 8px;"><strong>Macro (FRED):</strong></div><dl class="stats">${lines}</dl>`);
+  } else {
+    parts.push(`<div class="empty" style="margin-top: 6px;">Macro: not configured (set FRED_API_KEY)</div>`);
+  }
+
+  if (data.fundamentals) {
+    parts.push(`<div style="margin-top: 8px;"><strong>Fundamentals (Novaquity):</strong> ${escapeHtml(JSON.stringify(data.fundamentals).slice(0, 200))}…</div>`);
+  }
+
+  box.className = "";
+  box.innerHTML = parts.join("");
+}
+
+async function runOptimize() {
+  const btn = document.getElementById("optimize-btn");
+  const box = document.getElementById("optimize-box");
+  btn.disabled = true;
+  btn.textContent = "Optimizing…";
+  box.className = "";
+  box.innerHTML = '<div class="empty">Sweeping parameter space — this can take a moment.</div>';
+
+  try {
+    const r = await fetch("/api/optimize?method=random&n_samples=20&explain=true", { method: "POST" });
+    if (!r.ok) throw new Error(`optimize HTTP ${r.status}`);
+    const data = await r.json();
+    renderOptimize(data);
+  } catch (e) {
+    box.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run Optimization";
+  }
+}
+
+function renderOptimize(data) {
+  const box = document.getElementById("optimize-box");
+  if (!data.best) {
+    box.innerHTML = `<div class="empty">No viable parameter set found (${data.n_evaluated} evaluated).</div>`;
+    return;
+  }
+  const top = data.top.slice(0, 5);
+  const rows = top.map((c, i) => {
+    const p = c.params;
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${p.ema_fast}/${p.ema_slow}</td>
+        <td>${p.rsi_threshold}</td>
+        <td>${p.sl_atr_mult}/${p.tp_atr_mult}</td>
+        <td>${c.sharpe.toFixed(2)}</td>
+        <td>${fmtPct(c.total_return_pct)}</td>
+      </tr>`;
+  }).join("");
+
+  box.innerHTML = `
+    <div style="font-size: 12px; color: #94a3b8; margin-bottom: 6px;">
+      ${data.n_evaluated} configs evaluated · top 5 by Sharpe
+    </div>
+    <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+      <thead style="color: #94a3b8;">
+        <tr><th>#</th><th>EMA</th><th>RSI</th><th>SL/TP</th><th>Sharpe</th><th>Return</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${data.claude_recommendation
+      ? `<div style="margin-top: 10px; font-size: 12px; line-height: 1.5;"><strong style="color: #22d3ee;">Claude recommends:</strong> ${escapeHtml(data.claude_recommendation)}</div>`
+      : ""}
+  `;
+}
+
 async function init() {
   initCharts();
   try {
@@ -179,6 +293,8 @@ async function init() {
     document.getElementById("status-label").textContent = `Error: ${e.message}`;
   }
   document.getElementById("evaluate-btn").addEventListener("click", runEvaluation);
+  document.getElementById("context-btn").addEventListener("click", refreshContext);
+  document.getElementById("optimize-btn").addEventListener("click", runOptimize);
 }
 
 init();

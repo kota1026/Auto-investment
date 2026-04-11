@@ -26,18 +26,29 @@ def _make_exchange():
 
     Lazy because ccxt is a heavy import; we want unit tests that don't touch
     the network to skip it entirely.
+
+    Special handling per venue:
+      - binance / bybit / okx: standard apiKey + secret + sandbox mode
+      - hyperliquid: DEX, uses a wallet private key as `secret` (no apiKey).
+        For full perpetuals support consider also installing the official
+        `hyperliquid-python-sdk` and replacing this call with a wrapper.
     """
     import ccxt  # noqa: PLC0415
 
     exchange_class = getattr(ccxt, settings.exchange_id)
-    exchange = exchange_class(
-        {
-            "apiKey": settings.exchange_api_key or None,
-            "secret": settings.exchange_api_secret or None,
-            "enableRateLimit": True,
-            "options": {"defaultType": "spot"},
-        }
-    )
+    config: dict = {"enableRateLimit": True}
+
+    if settings.exchange_id == "hyperliquid":
+        # Hyperliquid wants the wallet private key only.
+        if settings.exchange_api_secret:
+            config["privateKey"] = settings.exchange_api_secret
+        config["options"] = {"defaultType": "swap"}  # perps
+    else:
+        config["apiKey"] = settings.exchange_api_key or None
+        config["secret"] = settings.exchange_api_secret or None
+        config["options"] = {"defaultType": "spot"}
+
+    exchange = exchange_class(config)
     if settings.exchange_testnet and hasattr(exchange, "set_sandbox_mode"):
         exchange.set_sandbox_mode(True)
         logger.info("ccxt sandbox mode enabled for %s", settings.exchange_id)

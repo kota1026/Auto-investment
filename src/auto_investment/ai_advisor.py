@@ -28,6 +28,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from .config import settings
+from .context import MarketContext
 from .forecaster import Forecast
 from .strategy import Signal
 
@@ -78,6 +79,10 @@ when those conditions align. You receive:
   2. A summary of recent price action (last 20-30 bars OHLC)
   3. Optionally, a TimesFM zero-shot forecast for the next several bars
      with an 80% confidence interval
+  4. Optionally, a recent news summary from Tavily (sentiment + headlines)
+  5. Optionally, a macroeconomic snapshot from FRED (yields, VIX, DXY, FFR)
+  6. Optionally, fundamental / supply-chain data from Novaquity
+     (Japanese-listed companies only)
 
 You return a verdict: BUY, SELL, or HOLD, with a confidence score and rationale.
 
@@ -88,18 +93,27 @@ CONFIRM (BUY/SELL with high confidence) when:
   - RSI is comfortably above 50 (longs) or below 50 (shorts), not borderline
   - Momentum (recent close vs EMA distance) supports continuation
   - The TimesFM forecast (if provided) trends in the same direction
+  - News sentiment (if provided) is consistent with the trade direction
+  - Macro backdrop (if provided) is supportive — e.g., for crypto longs,
+    falling DXY and VIX, or stable to falling real yields
+  - For Japanese stocks: positive earnings revisions or constructive
+    supply-chain propagation signals from Novaquity
   - Volatility (ATR relative to price) is moderate, not extreme
 
 VETO (HOLD) when:
   - The candidate fires at an obvious local high/low (mean-reversion risk)
   - RSI is in extreme territory (>75 for longs, <25 for shorts)
   - The TimesFM forecast contradicts the candidate direction
+  - News flow is materially against the trade (regulatory action, hack,
+    earnings miss, central bank surprise)
+  - Macro is hostile (VIX spiking, DXY ripping, real yields jumping for risk longs)
   - Recent bars show choppy / range-bound action with no clear trend
   - ATR has spiked dramatically (volatility blow-out — wait for normalization)
 
 REDUCE CONFIDENCE (still BUY/SELL but lower score) when:
   - Signal is technically valid but evidence is mixed
   - The forecast is uncertain (wide confidence interval)
+  - News flow is neutral or stale
   - Price is mid-range with no clear momentum
 
 # Output format
@@ -122,14 +136,13 @@ say "RSI is 62 and price is 1.8 ATR above EMA-slow" instead.
   - Never recommend a side that contradicts the candidate. Either confirm
     the candidate's side, or HOLD. (To reverse, the strategy must regenerate.)
   - Confidence < 0.4 means HOLD by convention.
+  - When optional context sections (news/macro/fundamentals) are absent,
+    proceed with technicals + forecast alone — don't penalize confidence
+    just because context is missing.
 """
 
 
-def _build_user_message(
-    signal: Signal,
-    recent_bars: list[dict],
-    forecast: Optional[Forecast],
-) -> str:
+def _build_user_message(signal: Signal, context: MarketContext) -> str:
     """Build the dynamic per-request user message.
 
     Kept short and structured — this is the part that varies per request and
@@ -138,12 +151,11 @@ def _build_user_message(
     bars_summary = "\n".join(
         f"  {b['timestamp']}: O={b['open']:.2f} H={b['high']:.2f} "
         f"L={b['low']:.2f} C={b['close']:.2f}"
-        for b in recent_bars[-20:]
+        for b in context.recent_bars[-20:]
     )
 
-    forecast_section = ""
-    if forecast is not None:
-        forecast_section = f"\n## TimesFM Forecast\n  {forecast.summary()}\n"
+    extra_context = context.to_prompt_section()
+    extra_section = f"\n{extra_context}\n" if extra_context else ""
 
     return f"""# Candidate Signal
 
@@ -157,25 +169,35 @@ def _build_user_message(
 
 # Recent Price Action (last 20 bars)
 {bars_summary}
-{forecast_section}
+{extra_section}
 # Your task
 
 Decide whether to confirm or veto this candidate. Return a structured verdict
 with action, confidence, rationale, and key_observations. Reference at least
-two concrete numbers from the data above in your rationale.
+two concrete numbers from the data above in your rationale. If news, macro, or
+fundamentals sections are present, weave at least one of them into your
+reasoning.
 """
 
 
 def evaluate_signal(
     signal: Signal,
-    recent_bars: list[dict],
+    context: MarketContext | list[dict],
     forecast: Optional[Forecast] = None,
 ) -> AdvisorVerdict:
     """Send a candidate signal to Claude and return its verdict.
 
+    `context` is normally a `MarketContext`. For backwards compatibility, a
+    raw list of `recent_bars` is also accepted — it gets wrapped automatically
+    along with the (optional) `forecast` argument.
+
     Falls back to a permissive HOLD verdict on any API failure (so a network
     blip never causes a runaway trade).
     """
+    # Backwards-compatible call shape: evaluate_signal(sig, [bars], forecast)
+    if isinstance(context, list):
+        context = MarketContext(recent_bars=context, forecast=forecast)
+
     if not settings.ai_enabled:
         return _bypass_verdict(signal, "AI advisor disabled in config")
 
@@ -186,7 +208,7 @@ def evaluate_signal(
         import anthropic  # noqa: PLC0415
 
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        user_message = _build_user_message(signal, recent_bars, forecast)
+        user_message = _build_user_message(signal, context)
 
         response = client.messages.parse(
             model=settings.ai_model,
