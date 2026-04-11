@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Auto-Investment — Trading Dashboard</title>
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+      :root {
+        --bg: #0b0e14;
+        --panel: #11161f;
+        --border: #1f2937;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --accent: #22d3ee;
+        --green: #22c55e;
+        --red: #ef4444;
+        --yellow: #facc15;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        padding: 14px 20px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+      header .symbol { color: var(--accent); font-weight: 500; }
+      header .status { margin-left: auto; font-size: 12px; color: var(--muted); }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        gap: 16px;
+        padding: 16px;
+      }
+      .charts { display: flex; flex-direction: column; gap: 12px; }
+      .chart-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .chart-card h2 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .price-chart { height: 460px; }
+      .rsi-chart { height: 160px; }
+      .equity-chart { height: 200px; }
+      aside {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px;
+      }
+      .panel h3 {
+        margin: 0 0 10px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      button {
+        background: var(--accent);
+        color: #062c33;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 13px;
+        width: 100%;
+      }
+      button:hover { filter: brightness(1.1); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .verdict-action {
+        font-size: 22px;
+        font-weight: 700;
+        margin: 8px 0 4px;
+      }
+      .verdict-action.BUY { color: var(--green); }
+      .verdict-action.SELL { color: var(--red); }
+      .verdict-action.HOLD { color: var(--yellow); }
+      .verdict-confidence { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+      .verdict-rationale { font-size: 13px; line-height: 1.5; color: var(--text); }
+      .verdict-obs { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+      .verdict-obs li { margin-bottom: 4px; }
+      .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; font-size: 13px; }
+      .stats dt { color: var(--muted); }
+      .stats dd { margin: 0; font-weight: 600; }
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 11px;
+        border-radius: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+      .badge.long { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+      .badge.short { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+      .badge.flat { background: rgba(148, 163, 184, 0.15); color: var(--muted); }
+      pre.forecast {
+        font-size: 11px;
+        color: var(--muted);
+        background: #0a0d12;
+        border: 1px solid var(--border);
+        padding: 8px;
+        border-radius: 4px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 4px 0 0;
+      }
+      .empty { color: var(--muted); font-size: 12px; font-style: italic; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Auto-Investment <span class="symbol" id="symbol-label">—</span></h1>
+      <div class="status" id="status-label">Loading…</div>
+    </header>
+    <main>
+      <section class="charts">
+        <div class="chart-card">
+          <h2>Price + EMA(12/26) — signals as arrows</h2>
+          <div id="price-chart" class="price-chart"></div>
+        </div>
+        <div class="chart-card">
+          <h2>RSI(14)</h2>
+          <div id="rsi-chart" class="rsi-chart"></div>
+        </div>
+        <div class="chart-card">
+          <h2>Backtest Equity Curve</h2>
+          <div id="equity-chart" class="equity-chart"></div>
+        </div>
+      </section>
+
+      <aside>
+        <div class="panel">
+          <h3>AI Evaluation</h3>
+          <button id="evaluate-btn">Run Evaluation</button>
+          <div id="verdict-box" class="empty" style="margin-top: 12px;">
+            Click "Run Evaluation" to consult Claude on the latest signal.
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Context Layers</h3>
+          <button id="context-btn">Refresh Context</button>
+          <div id="context-box" class="empty" style="margin-top: 12px;">
+            News (Tavily), macro (FRED), fundamentals (Novaquity).
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Optimizer (AutoAgent style)</h3>
+          <button id="optimize-btn">Run Optimization</button>
+          <div id="optimize-box" class="empty" style="margin-top: 12px;">
+            Sweep strategy params and rank by Sharpe.
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Improvement Loop (JSAI 2026)</h3>
+          <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+            <select id="improve-mode" style="flex: 1; background: #0a0d12; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 4px; padding: 6px; font-size: 12px;">
+              <option value="P1">P1 — basic only</option>
+              <option value="P2" selected>P2 — basic + IC + factors</option>
+              <option value="P3">P3 — P2 + price series</option>
+            </select>
+            <button id="improve-btn" style="flex: 1;">Run Loop</button>
+          </div>
+          <div id="improve-box" class="empty" style="margin-top: 4px;">
+            Iterative Claude-driven param tuning, Kawamura et al. style.
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Alpha Arena (Nof1 format)</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+            <input id="contest-capital" type="number" value="30" min="10" step="10" placeholder="Capital" style="background: #0a0d12; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 4px; padding: 6px; font-size: 12px;" />
+            <input id="contest-days" type="number" value="30" min="7" max="180" step="1" placeholder="Days" style="background: #0a0d12; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 4px; padding: 6px; font-size: 12px;" />
+          </div>
+          <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+            <label style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
+              <input id="contest-ai" type="checkbox" /> Use Claude
+            </label>
+            <label style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
+              <input id="contest-real" type="checkbox" /> Real data
+            </label>
+          </div>
+          <button id="contest-btn" style="width: 100%;">Run Contest</button>
+          <div id="contest-box" class="empty" style="margin-top: 8px;">
+            BTC/ETH/SOL perp portfolio · cross margin · funding · liquidations.
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Backtest Stats</h3>
+          <dl class="stats" id="bt-stats">
+            <dt>Trades</dt><dd>—</dd>
+            <dt>Win rate</dt><dd>—</dd>
+            <dt>Avg R:R</dt><dd>—</dd>
+            <dt>Total return</dt><dd>—</dd>
+            <dt>Max drawdown</dt><dd>—</dd>
+            <dt>Final equity</dt><dd>—</dd>
+          </dl>
+        </div>
+      </aside>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

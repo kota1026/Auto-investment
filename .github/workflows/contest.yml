@@ -1,0 +1,172 @@
+name: Alpha Arena Contest
+
+# Run a Claude-vs-Heuristic Alpha Arena contest in the cloud.
+#
+# SETUP (one-time, ~2 minutes):
+#   1. Go to: https://github.com/kota1026/Auto-investment/settings/secrets/actions
+#   2. Click "New repository secret"
+#   3. Name: ANTHROPIC_API_KEY
+#   4. Value: your sk-ant-... key
+#   5. Save
+#
+# After that, every run is fully automated:
+#   - Manual trigger: Actions tab → "Alpha Arena Contest" → "Run workflow"
+#   - Scheduled: runs daily at 06:00 UTC (commented out by default — uncomment to enable)
+#   - Results auto-committed to results/ on the main branch
+#   - Results auto-posted as a comment on the tracking issue
+
+on:
+  workflow_dispatch:
+    inputs:
+      capital:
+        description: "Starting capital in USD"
+        required: true
+        default: "30"
+        type: string
+      days:
+        description: "Contest duration in days"
+        required: true
+        default: "30"
+        type: string
+      decision_interval:
+        description: "Hours between decisions (4 = Nof1 standard)"
+        required: true
+        default: "4"
+        type: string
+      real_data:
+        description: "Use yfinance real BTC/ETH/SOL data (false = synthetic)"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      seed:
+        description: "Synthetic data seed (ignored when real_data=true)"
+        required: true
+        default: "42"
+        type: string
+      run_claude:
+        description: "Run the Claude phase (false = heuristic only, free)"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+  # Daily scheduled run — uncomment to enable
+  # schedule:
+  #   - cron: "0 6 * * *"  # 06:00 UTC every day
+
+permissions:
+  contents: write       # for auto-committing results
+  issues: write         # for posting to the tracking issue
+
+jobs:
+  contest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run quick test suite (sanity check)
+        run: |
+          python -m pytest tests/ -q --no-header
+
+      - name: Run Alpha Arena contest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CONTEST_CAPITAL: ${{ github.event.inputs.capital || '30' }}
+          CONTEST_DAYS: ${{ github.event.inputs.days || '30' }}
+          CONTEST_INTERVAL: ${{ github.event.inputs.decision_interval || '4' }}
+          CONTEST_REAL_DATA: ${{ github.event.inputs.real_data || 'false' }}
+          CONTEST_SEED: ${{ github.event.inputs.seed || '42' }}
+        run: |
+          if [ "${{ github.event.inputs.run_claude || 'true' }}" = "false" ]; then
+            echo "Running heuristic only (free, fast)"
+            PYTHONPATH=src python -c "
+            from auto_investment.alpha_arena import run_contest
+            import os, json
+            from pathlib import Path
+            from datetime import datetime
+            r = run_contest(
+                starting_capital=float(os.environ['CONTEST_CAPITAL']),
+                duration_days=int(os.environ['CONTEST_DAYS']),
+                decision_interval_hours=int(os.environ['CONTEST_INTERVAL']),
+                use_real_data=os.environ['CONTEST_REAL_DATA'].lower()=='true',
+                use_ai=False,
+                seed=int(os.environ['CONTEST_SEED']),
+            )
+            out = Path('contest_results'); out.mkdir(exist_ok=True)
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            (out / f'heuristic_{ts}.json').write_text(json.dumps(r.to_dict(), indent=2, default=str))
+            print(f\"\${r.starting_capital} -> \${r.final_equity:.2f} ({r.total_return_pct:+.2f}%) Sharpe {r.sharpe:.2f}\")
+            "
+          else
+            PYTHONPATH=src python scripts/run_contest_path_a.py
+          fi
+
+      - name: Update result history (auto_track)
+        run: |
+          PYTHONPATH=src python scripts/auto_track.py
+
+      - name: Post results to tracking GitHub Issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          PYTHONPATH=src python scripts/post_results_issue.py
+
+      - name: Commit results to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/ || true
+          if git diff --staged --quiet; then
+            echo "No new results to commit"
+          else
+            git commit -m "Auto: contest results $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Upload contest results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contest-results-${{ github.run_id }}
+          path: contest_results/
+          retention-days: 30
+
+      - name: Optional Discord notification
+        if: env.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          # Find the latest result file
+          LATEST=$(ls -t contest_results/*.json 2>/dev/null | head -1 || true)
+          if [ -z "$LATEST" ]; then exit 0; fi
+          SUMMARY=$(python -c "
+          import json, sys
+          d = json.load(open('$LATEST'))
+          print(f\"Auto-Investment contest done | \${d['starting_capital']:.0f} -> \${d['final_equity']:.2f} ({d['total_return_pct']:+.2f}%) | Sharpe {d['sharpe']:+.2f} | vs BTC {d['alpha_vs_benchmark']:+.2f}%\")
+          ")
+          curl -X POST -H "Content-Type: application/json" \
+            -d "{\"content\": \"$SUMMARY\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true

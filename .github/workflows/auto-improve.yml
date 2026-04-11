@@ -1,0 +1,131 @@
+name: Auto-Improvement Loop (JSAI)
+
+# Runs the JSAI-paper-inspired iterative improvement loop on a schedule.
+# If Claude finds parameters that beat the current default, opens a PR
+# with the proposed change. You just review and merge.
+#
+# Schedule: every Monday at 08:00 UTC (after the batch experiment).
+# Manual:   Actions tab → "Auto-Improvement Loop" → "Run workflow"
+#
+# COST per run: ~$2-5 (5 iterations × ~$0.50 each)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Feedback mode (P1=basic / P2=+IC+factors / P3=+price series)"
+        required: true
+        default: "P2"
+        type: choice
+        options:
+          - "P1"
+          - "P2"
+          - "P3"
+      max_iterations:
+        description: "Max improvement iterations"
+        required: true
+        default: "5"
+        type: string
+
+  schedule:
+    - cron: "0 8 * * 1"  # Monday 08:00 UTC
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  improve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run improvement loop
+        id: improve
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p results
+          PYTHONPATH=src python -c "
+          import json, os
+          from datetime import datetime
+          from pathlib import Path
+          from auto_investment.improvement_loop import run_improvement_loop, FeedbackMode
+          from auto_investment.data import synthetic_ohlcv
+
+          mode = FeedbackMode('${{ github.event.inputs.mode || 'P2' }}')
+          max_iter = int('${{ github.event.inputs.max_iterations || '5' }}')
+          df = synthetic_ohlcv(limit=2000)
+          result = run_improvement_loop(df, mode=mode, max_iterations=max_iter,
+                                        initial_equity=30.0, risk_per_trade=0.02)
+
+          ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+          out = Path('results') / f'improve_{ts}.json'
+          out.write_text(json.dumps(result.to_dict(), indent=2, default=str))
+          print(f'Wrote {out}')
+
+          # Compare initial vs final
+          init = result.initial_metrics
+          final = result.final_metrics
+          delta_return = final['total_return_pct'] - init['total_return_pct']
+          delta_sharpe = final['icir'] - init['icir']
+
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary_path:
+              with open(summary_path, 'a') as f:
+                  f.write(f'# Improvement Loop ({mode.value})\n\n')
+                  f.write(f'**Iterations:** {result.iterations_used}/{max_iter}  ')
+                  f.write(f'**Converged:** {result.converged}\n\n')
+                  f.write('| Metric | Before | After | Delta |\n|---|---:|---:|---:|\n')
+                  f.write(f'| Return % | {init[\"total_return_pct\"]:+.2f}% | {final[\"total_return_pct\"]:+.2f}% | {delta_return:+.2f} pp |\n')
+                  f.write(f'| ICIR | {init[\"icir\"]:+.3f} | {final[\"icir\"]:+.3f} | {delta_sharpe:+.3f} |\n')
+                  f.write(f'| Trades | {init[\"n_trades\"]} | {final[\"n_trades\"]} | {final[\"n_trades\"] - init[\"n_trades\"]:+d} |\n')
+                  f.write(f'\n**Final params:** \`{result.final_params}\`\n')
+
+          # Write a marker file the next step uses to decide whether to open a PR
+          beat_baseline = delta_return > 5.0  # >5pp improvement → propose change
+          with open('improvement_marker.txt', 'w') as f:
+              f.write(f'beat_baseline={str(beat_baseline).lower()}\n')
+              f.write(f'delta_return={delta_return:.2f}\n')
+              f.write(f'final_params={result.final_params}\n')
+          print(f'beat_baseline={beat_baseline}, delta_return={delta_return:+.2f}')
+          "
+          cat improvement_marker.txt >> "$GITHUB_OUTPUT"
+
+      - name: Commit improvement result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/ || true
+          if git diff --staged --quiet; then
+            echo "No new results"
+          else
+            git commit -m "Auto: improvement loop $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Upload result as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: improvement-${{ github.run_id }}
+          path: |
+            results/improve_*.json
+            improvement_marker.txt
+          retention-days: 90
