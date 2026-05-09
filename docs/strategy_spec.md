@@ -5,6 +5,13 @@
 **Author:** Claude Code (auto‑drafted, CEO‑reviewed)
 
 ## Changelog
+- **v0.3 (2026‑05‑09)** — Phase 2 implementation. Adds S3 (cross‑exchange
+  stat‑arb), S4 (pre‑IPO alerts, alert‑only), and a real‑data fetcher
+  layer (`data_fetchers/`) with parquet cache. New runner
+  `scripts/backtest_phase2.py` runs all four strategies with `--mode synth`
+  (hermetic) or `--mode real` (loads cache populated by
+  `scripts/fetch_real_data.py`). S3 z‑threshold tuned to 3.5 to clear
+  retail‑taker fee tier; promote to maker‑rebate in Phase 3 to relax it.
 - **v0.2.1 (2026‑05‑09)** — Backtest output gains explicit `period_days` /
   `capital_base_usd` fields and both `total_return_pct` (over period) and
   `annualised_return_pct` (per‑year) so units are unambiguous. Adds §13
@@ -546,6 +553,77 @@ wallet for fast deployment and earns 0% in this model.
 The recommended starting allocation is **Conservative** for the first 4
 weeks of paper trading (Phase 3), stepping up to Balanced once paper
 metrics confirm IS performance.
+
+---
+
+## 14. Phase 2 Results — S3 + S4 + real‑data path
+
+### 14.1 What shipped in Phase 2
+
+| Component | Path | Notes |
+|---|---|---|
+| Hyperliquid funding fetcher | `src/auto_investment/data_fetchers/funding.py` | ccxt-based, paginated, parquet cache |
+| DefiLlama yields fetcher | `src/auto_investment/data_fetchers/yields.py` | Stdlib HTTP, no key |
+| Binance/Bybit OHLCV fetcher | `src/auto_investment/data_fetchers/ohlcv.py` | 1m default, paired spread builder for S3 |
+| Aevo pre‑IPO fetcher | `src/auto_investment/data_fetchers/preipo.py` | Daily index marks for the watchlist |
+| **S3 strategy** | `src/auto_investment/strategies/cross_exchange.py` | Mean‑reversion on z(spread); see KPI below |
+| **S4 alerts** | `src/auto_investment/strategies/preipo_alerts.py` | Alert‑only; no auto‑trade |
+| Local data‑fetch CLI | `scripts/fetch_real_data.py` | Runs on user's machine; populates `data/` cache |
+| Phase 2 backtest runner | `scripts/backtest_phase2.py` | `--mode synth | real` |
+
+### 14.2 S3 backtest summary (synthetic, retail‑taker fees)
+
+| Metric | Target | Result (seed=7) | Multi-seed range |
+|---|---|---|---|
+| Annualised return | > 0% | **+8.26%** | +5.0% – +15.5% |
+| Hit rate | ≥ 55% | **70%** | 70% – 89% |
+| Max DD | ≤ 1% | **0.04%** | 0.00% – 0.04% |
+| Trades / 14 days | — | 10 | 5 – 10 |
+
+**Key finding.** With both venues at retail taker fee (Binance 4.5 bps,
+Bybit 5.5 bps + slippage), round‑trip cost ≈ 28 bps. The strategy clears
+costs only at z ≥ 3.0; we set the default to z=3.5 for a +12 bps buffer
+per trade. **Phase 3 priority: move to maker‑rebate fee tier on at least
+one venue** to relax this threshold and increase trade count.
+
+### 14.3 S4 alerts behaviour
+
+S4 emits an alert when *implied IPO probability* (mark / 90‑day rolling
+max) jumps by > 5pp over a 7‑day window, with a 3‑day cooldown to prevent
+spam. On the synthetic SpaceX series with a 30% rumor jump, it fires 13
+alerts over 180 days. Real‑data validation requires the user to run
+`python scripts/fetch_real_data.py --target s4` to populate Aevo marks.
+
+### 14.4 Real‑data path (user runs locally)
+
+The sandbox where Claude Code runs has no network egress to crypto APIs.
+The user runs the following on their machine to populate caches:
+
+```bash
+# All four targets, default 90‑day window
+python scripts/fetch_real_data.py
+
+# Just S3 (much smaller — 14 days × 1m)
+python scripts/fetch_real_data.py --target s3 --days 14
+
+# Then re‑run the backtest with real data
+python scripts/backtest_phase2.py --mode real
+```
+
+Cache is gitignored (`data/{funding,yields,ohlcv,preipo}/*.parquet`)
+to keep the repo small. Run it weekly during Phase 2 to validate the
+synth assumptions.
+
+### 14.5 Updated allocation across S1+S2+S3 (synthetic numbers)
+
+| Policy | S1 | S2 | S3 | Cash | **Blended APR** | $/yr on $10k |
+|---|---|---|---|---|---|---|
+| Conservative | 20% | 50% | 10% | 20% | **7.38%** | $738 |
+| Balanced | 25% | 50% | 15% | 10% | **8.53%** | $853 |
+| Aggressive | 25% | 50% | 25% | 0% | **9.35%** | $935 |
+
+Same caveats as §13: synthetic data, no depeg events, S3 Sharpe
+inflated by clean OU process. Replace with real‑data run before Phase 3.
 
 ---
 
