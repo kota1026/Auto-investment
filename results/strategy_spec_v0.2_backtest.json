@@ -1,0 +1,89 @@
+{
+  "generated_at": "2026-05-09T09:38:59.802023+00:00",
+  "spec_version": "v0.2",
+  "seed": 7,
+  "equity_usd": 10000.0,
+  "data_source": "synthetic (Phase 1 sanity)",
+  "S1": {
+    "strategy": "S1_funding_arb",
+    "venue_spot": "binancejp",
+    "venue_perp": "hyperliquid",
+    "period_days": 90.0,
+    "capital_base_usd": 2000.0,
+    "n_trades": 53,
+    "total_pnl_usd": 68.95,
+    "total_return_pct": 3.447,
+    "annualised_return_pct": 14.735,
+    "hit_rate": 0.34,
+    "avg_funding_per_trade_usd": 7.07,
+    "avg_fees_per_trade_usd": 5.6,
+    "sharpe_annualised": 2.74,
+    "sharpe_adj": 2.56,
+    "sharpe_boot_median": 2.49,
+    "sharpe_boot_p5": -5.38,
+    "sharpe_boot_p95": 8.18,
+    "max_drawdown_pct": 2.65,
+    "kpi_pass": true
+  },
+  "S2": {
+    "strategy": "S2_yield_router",
+    "n_pools": 5,
+    "n_rotations": 7,
+    "period_days": 364,
+    "capital_base_usd": 5000.0,
+    "total_return_pct": 7.194,
+    "annualised_return_pct": 7.214,
+    "baseline_total_return_pct": 4.589,
+    "baseline_annualised_return_pct": 4.602,
+    "uplift_bps_vs_baseline": 261.2,
+    "max_drawdown_pct": 0.006,
+    "kpi_pass": true
+  },
+  "allocations": {
+    "Conservative_25_50_25": {
+      "weights_pct": {
+        "S1": 25.0,
+        "S2": 50.0,
+        "cash": 25.0
+      },
+      "expected_apr_pct": 7.29,
+      "expected_pnl_usd_per_year": 729.0,
+      "expected_pnl_usd_per_month": 61.0,
+      "worst_case_max_dd_pct": 0.665,
+      "rationale": "Respects 25% Hyperliquid cap; S2 spread across multiple L2 protocols counts as \u226425% per venue; ample cash buffer."
+    },
+    "Balanced_25_60_15": {
+      "weights_pct": {
+        "S1": 25.0,
+        "S2": 60.0,
+        "cash": 15.0
+      },
+      "expected_apr_pct": 8.01,
+      "expected_pnl_usd_per_year": 801.0,
+      "expected_pnl_usd_per_month": 67.0,
+      "worst_case_max_dd_pct": 0.666,
+      "rationale": "Same Hyperliquid cap; lean more into yield, smaller buffer."
+    },
+    "Aggressive_25_75_0": {
+      "weights_pct": {
+        "S1": 25.0,
+        "S2": 75.0,
+        "cash": 0.0
+      },
+      "expected_apr_pct": 9.09,
+      "expected_pnl_usd_per_year": 909.0,
+      "expected_pnl_usd_per_month": 76.0,
+      "worst_case_max_dd_pct": 0.667,
+      "rationale": "Max yield deployment; relies on DeFi pool liquidity for exits."
+    }
+  },
+  "kpi_targets": {
+    "S1": "Sharpe>=2, AdjSharpe>=1.5, BootMedian>=1.0, MaxDD<=5%",
+    "S2": "AnnAPR uplift>=200bps vs baseline, MaxDD<=2%"
+  },
+  "units": {
+    "total_return_pct": "% over period_days",
+    "annualised_return_pct": "% per year (compounded)",
+    "sharpe_annualised": "annualised Sharpe ratio"
+  }
+}

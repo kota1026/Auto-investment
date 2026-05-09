@@ -7,7 +7,12 @@ venv/
 .env.local
 data/*.csv
 data/*.parquet
+data/funding/*.parquet
+data/yields/*.parquet
+data/ohlcv/*.parquet
+data/preipo/*.parquet
 !data/.gitkeep
+!data/**/.gitkeep
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
