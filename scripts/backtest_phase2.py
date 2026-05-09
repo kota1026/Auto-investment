@@ -69,10 +69,15 @@ def run_s1(seed: int, mode: str) -> dict:
         funding = synth_funding_series(n=24 * 90, seed=seed)
         print(f"  data: synthetic ({len(funding)} hourly bars, seed={seed})")
 
+    # Threshold tuning: synth funding has mean ~13% APR so 15% (1500 bps)
+    # entry filters appropriately. Real Hyperliquid BTC funding sits ~3-8%
+    # APR most days, so 1500 never triggers. We pick 600 bps APR as a
+    # compromise: high enough to cover round-trip fees on a 5–10 day hold,
+    # low enough to actually trigger on real data. Phase 3 will revisit.
     cfg = FundingArbConfig(
         spot_venue="binancejp", perp_venue="hyperliquid",
         notional_per_trade_usd=2_000.0,
-        min_edge_apr_bps=1500.0, exit_edge_apr_bps=50.0,
+        min_edge_apr_bps=600.0, exit_edge_apr_bps=100.0,
     )
     res = backtest_funding_arb(funding, config=cfg)
     period_hours = len(funding)
@@ -94,28 +99,45 @@ def run_s1(seed: int, mode: str) -> dict:
 
 def run_s2(seed: int, mode: str) -> dict:
     print("\n=== S2 — DeFi Yield Router ===")
+    real_loaded = False
     if mode == "real":
         from auto_investment.data_fetchers import yields as yld
         try:
             universe = yld.load_universe_latest()
-            pool_ids = universe["pool_id"].tolist()[:5]  # cap at 5 for backtest
+            pool_ids = universe["pool_id"].tolist()[:5]
             grid = yld.build_apy_grid(pool_ids)
-            print(f"  data: real ({len(grid)} bars × {grid.shape[1]} pools)")
+            min_bars_required = 30  # ~5 days at 4h cadence
+            if grid.empty or len(grid) < min_bars_required or grid.shape[1] < 2:
+                raise ValueError(
+                    f"real grid too small ({len(grid)} bars × "
+                    f"{grid.shape[1] if not grid.empty else 0} pools); "
+                    f"need >= {min_bars_required} bars and >= 2 pools"
+                )
             from auto_investment.strategies.yield_router import PoolMeta
+            # Only build PoolMeta for pools that survived build_apy_grid's
+            # coverage filter — otherwise we feed the backtester a column
+            # name that doesn't exist.
+            kept_ids = grid.columns.tolist()
+            kept_universe = universe[universe["pool_id"].isin(kept_ids)]
             pools = [
-                PoolMeta(pool_id=pid, chain=row["chain"], protocol=row["project"],
-                         asset=row["symbol"], tvl_usd=float(row["tvl_usd"]),
-                         audits=int(row["audits"]),
-                         age_days=180, risk_premium_bps=0.0)
-                for pid, (_, row) in zip(pool_ids, universe.head(5).iterrows())
+                PoolMeta(
+                    pool_id=row["pool_id"], chain=row["chain"],
+                    protocol=row["project"], asset=row["symbol"],
+                    tvl_usd=float(row["tvl_usd"]),
+                    audits=int(row["audits"]),
+                    age_days=180, risk_premium_bps=0.0,
+                )
+                for _, row in kept_universe.iterrows()
             ]
             apy_history = grid
-        except (FileNotFoundError, KeyError) as exc:
-            print(f"  data: real cache missing ({exc}) — falling back to synth")
-            pools, apy_history = synth_pool_grid(seed=seed)
-    else:
+            real_loaded = True
+            print(f"  data: real ({len(grid)} bars × {grid.shape[1]} pools)")
+        except (FileNotFoundError, KeyError, ValueError) as exc:
+            print(f"  data: real cache unusable ({exc}) — falling back to synth")
+    if not real_loaded:
         pools, apy_history = synth_pool_grid(seed=seed)
-        print(f"  data: synthetic ({len(apy_history)} 4h bars × {len(pools)} pools)")
+        if mode == "synth":
+            print(f"  data: synthetic ({len(apy_history)} 4h bars × {len(pools)} pools)")
 
     cfg = YieldRouterConfig(notional_usd=5_000.0, holding_window_days=7)
     res = backtest_yield_router(pools, apy_history, config=cfg)
@@ -138,17 +160,23 @@ def run_s2(seed: int, mode: str) -> dict:
 
 def run_s3(seed: int, mode: str) -> dict:
     print("\n=== S3 — Cross-exchange Stat-Arb ===")
+    real_loaded = False
     if mode == "real":
         from auto_investment.data_fetchers import ohlcv as oh
         try:
             spread_df = oh.build_spread_series("binance", "bybit", "BTC/USDT", "1m")
+            # Need at least 1.5× the rolling-window-span of bars to produce
+            # a usable z-score series.
+            if len(spread_df) < 360:
+                raise ValueError(f"spread series too short ({len(spread_df)} bars)")
+            real_loaded = True
             print(f"  data: real ({len(spread_df)} 1m bars)")
-        except FileNotFoundError as exc:
-            print(f"  data: real cache missing ({exc}) — falling back to synth")
-            spread_df = synth_cross_exchange_spread(seed=seed)
-    else:
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"  data: real cache unusable ({exc}) — falling back to synth")
+    if not real_loaded:
         spread_df = synth_cross_exchange_spread(seed=seed)
-        print(f"  data: synthetic ({len(spread_df)} 1m bars, seed={seed})")
+        if mode == "synth":
+            print(f"  data: synthetic ({len(spread_df)} 1m bars, seed={seed})")
 
     # Use the dataclass defaults (z_entry=3.0, timeout=120) which are
     # calibrated above retail-taker fees per cross_exchange.py docstring.

@@ -152,17 +152,43 @@ def load_chart(pool_id: str, base: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
 
 
 def build_apy_grid(
-    pool_ids: list[str], base: Path = DEFAULT_CACHE_DIR
+    pool_ids: list[str],
+    base: Path = DEFAULT_CACHE_DIR,
+    *,
+    ffill_limit: int = 6,
+    min_coverage: float = 0.5,
 ) -> pd.DataFrame:
-    """Combine per-pool charts into a single time-aligned grid for the router.
+    """Combine per-pool charts into a time-aligned grid for the router.
 
     Output shape: (n_periods, n_pools), values = apy_total fraction.
-    Drops timestamps where any pool is missing data, since the backtester
-    expects a fully aligned grid.
+
+    DefiLlama returns charts at slightly different cadences per pool, so a
+    naive inner join + dropna empties the grid. We do an outer join, then:
+      1. forward-fill up to `ffill_limit` periods (covers minor gaps)
+      2. drop columns where post-ffill coverage < `min_coverage`
+         (i.e. pools whose chart starts much later than the others)
+      3. drop any remaining all-NaN rows
+
+    Pools whose chart files are missing or empty are skipped silently — they
+    just aren't part of the returned grid.
     """
-    frames = {}
+    frames: dict[str, pd.Series] = {}
     for pid in pool_ids:
-        df = load_chart(pid, base=base)
-        frames[pid] = df["apy_total"] / 100.0  # DefiLlama gives % — convert to fraction
-    grid = pd.DataFrame(frames).dropna()
+        try:
+            df = load_chart(pid, base=base)
+        except FileNotFoundError:
+            continue
+        if df.empty or "apy_total" not in df.columns:
+            continue
+        frames[pid] = df["apy_total"] / 100.0  # DefiLlama % → fraction
+
+    if not frames:
+        return pd.DataFrame()
+
+    grid = pd.DataFrame(frames).sort_index().ffill(limit=ffill_limit)
+    if grid.empty:
+        return grid
+    coverage = grid.notna().mean()
+    keep_cols = coverage[coverage >= min_coverage].index.tolist()
+    grid = grid[keep_cols].dropna()
     return grid
