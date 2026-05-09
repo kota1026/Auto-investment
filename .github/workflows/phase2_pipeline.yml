@@ -1,0 +1,163 @@
+name: Phase 2 Pipeline (fetch + backtest)
+
+# Runs the Phase 2 data-fetch + backtest pipeline on GitHub-hosted runners
+# so the user doesn't have to run anything locally. The runner has clean
+# network egress to Hyperliquid / DefiLlama / Binance / Bybit / Aevo.
+#
+# What it does:
+#   1. Checkout repo
+#   2. Restore parquet cache from a previous run (so we only fetch new data)
+#   3. python scripts/fetch_real_data.py    (incremental, --force=false)
+#   4. python scripts/backtest_phase2.py --mode real
+#   5. Commit the updated results JSON + cache to the working branch
+#   6. Save the parquet cache for the next run
+#
+# Cost: ~5–10 min per run on ubuntu-latest. Well within GitHub free tier.
+# Trigger: daily cron @ 06:00 UTC (= 15:00 JST), or manual.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Backtest mode (real | synth)"
+        required: false
+        default: "real"
+        type: choice
+        options:
+          - real
+          - synth
+      force_refetch:
+        description: "Overwrite existing cache?"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write          # needed to commit results back to the branch
+  pull-requests: write     # needed to comment on PR with results summary
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # We need the full history so the auto-commit step can push back.
+          fetch-depth: 0
+          # Default ref is the branch the workflow runs against — that's
+          # what we want when triggered from claude/* or main.
+          ref: ${{ github.ref }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyarrow pytest
+
+      - name: Restore parquet cache (cross-run)
+        # Caches the per-topic parquet files so subsequent runs only fetch
+        # incremental data, not the entire 90-day window each time.
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/funding
+            data/yields
+            data/ohlcv
+            data/preipo
+          # Bump the static suffix to force-bust the cache schema.
+          key: phase2-data-v1-${{ github.run_id }}
+          restore-keys: |
+            phase2-data-v1-
+
+      - name: Run unit tests (fast pre-flight)
+        run: |
+          PYTHONPATH=src python -m pytest \
+            tests/test_cost_model.py \
+            tests/test_funding_arb.py \
+            tests/test_yield_router.py \
+            tests/test_cross_exchange.py \
+            tests/test_preipo_alerts.py \
+            tests/test_data_fetchers.py \
+            -q
+
+      - name: Fetch real market data
+        # The fetch_real_data.py script is idempotent — already-cached files
+        # are skipped unless --force is passed. We catch and continue on
+        # per-target failures so a Hyperliquid hiccup doesn't block S2/S3/S4.
+        env:
+          FORCE: ${{ inputs.force_refetch && '--force' || '' }}
+        run: |
+          set +e
+          PYTHONPATH=src python scripts/fetch_real_data.py --target s1 $FORCE
+          PYTHONPATH=src python scripts/fetch_real_data.py --target s2 $FORCE
+          PYTHONPATH=src python scripts/fetch_real_data.py --target s3 --days 14 $FORCE
+          PYTHONPATH=src python scripts/fetch_real_data.py --target s4 $FORCE
+          set -e
+          echo "--- fetched cache summary ---"
+          du -sh data/funding data/yields data/ohlcv data/preipo 2>/dev/null || true
+          ls -la data/funding data/yields data/ohlcv data/preipo 2>/dev/null || true
+
+      - name: Run Phase 2 backtest
+        env:
+          MODE: ${{ inputs.mode || 'real' }}
+        run: |
+          PYTHONPATH=src python scripts/backtest_phase2.py \
+            --mode $MODE \
+            --equity 10000 \
+            --seed 7 \
+            --out results/strategy_spec_v0.3_backtest.json
+
+      - name: Show backtest summary
+        run: |
+          python -c "
+          import json, pathlib
+          d = json.loads(pathlib.Path('results/strategy_spec_v0.3_backtest.json').read_text())
+          print(f\"mode={d['mode']}  generated={d['generated_at']}\")
+          for k in ('S1','S2','S3','S4'):
+              s = d[k]
+              if 'annualised_return_pct' in s:
+                  print(f\"  {k}: APR {s['annualised_return_pct']:>+6.2f}%  \"
+                        f\"trades={s.get('n_trades','-')}  data={s.get('data','-')}\")
+              else:
+                  print(f\"  {k}: alerts={s.get('n_alerts','-')}  data={s.get('data','-')}\")
+          print('--- allocations ---')
+          for name, info in d['allocations'].items():
+              print(f\"  {name:32s} APR {info['expected_apr_pct']:>+6.2f}%  \"
+                    f\"\${info['expected_pnl_usd_per_year']:>5.0f}/yr\")
+          "
+
+      - name: Commit updated results back to branch
+        # Only auto-commit on the scheduled daily run — manual runs may be
+        # exploratory and we don't want to churn the branch.
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/strategy_spec_v0.3_backtest.json
+          if git diff --cached --quiet; then
+            echo "No result changes to commit."
+            exit 0
+          fi
+          git commit -m "ci(phase2): scheduled backtest update $(date -u +%Y-%m-%d)"
+          # Be defensive on push — a parallel commit may have landed.
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Upload backtest artifact
+        # Always upload — useful even when we don't auto-commit.
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-backtest-results
+          path: results/strategy_spec_v0.3_backtest.json
+          retention-days: 30

@@ -594,25 +594,30 @@ spam. On the synthetic SpaceX series with a 30% rumor jump, it fires 13
 alerts over 180 days. Real‑data validation requires the user to run
 `python scripts/fetch_real_data.py --target s4` to populate Aevo marks.
 
-### 14.4 Real‑data path (user runs locally)
+### 14.4 Real‑data path — runs in GitHub Actions, not locally
 
-The sandbox where Claude Code runs has no network egress to crypto APIs.
-The user runs the following on their machine to populate caches:
+The sandbox where Claude Code runs (and the user's local machine) doesn't
+need to fetch market data. **GitHub Actions does it on a daily cron.**
 
-```bash
-# All four targets, default 90‑day window
-python scripts/fetch_real_data.py
+`.github/workflows/phase2_pipeline.yml`:
+- Trigger: daily 06:00 UTC (= 15:00 JST), or manual via the Actions tab
+- Steps: restore parquet cache → unit tests → `fetch_real_data.py` →
+  `backtest_phase2.py --mode real` → commit results JSON back to the
+  branch + upload artifact
+- Cost: ~5–10 min per run on `ubuntu-latest`. Well within free tier.
 
-# Just S3 (much smaller — 14 days × 1m)
-python scripts/fetch_real_data.py --target s3 --days 14
+Cache strategy: parquet files are persisted between runs via
+`actions/cache`, so successive runs only fetch incremental data. The
+`results/strategy_spec_v0.3_backtest.json` is auto‑committed back to
+the branch by `github-actions[bot]`, giving you a daily history of how
+the synth → real divergence evolves.
 
-# Then re‑run the backtest with real data
-python scripts/backtest_phase2.py --mode real
-```
+To trigger a one‑off run with custom args, use the GitHub UI:
+*Actions → Phase 2 Pipeline → Run workflow*. You can pick `synth`/`real`
+mode and toggle `force_refetch` to wipe the cache.
 
-Cache is gitignored (`data/{funding,yields,ohlcv,preipo}/*.parquet`)
-to keep the repo small. Run it weekly during Phase 2 to validate the
-synth assumptions.
+> The original `scripts/fetch_real_data.py` is still there for anyone who
+> wants to run it locally, but you don't have to.
 
 ### 14.5 Updated allocation across S1+S2+S3 (synthetic numbers)
 
