@@ -163,6 +163,19 @@ def backtest_yield_router(
     eligible_ids = [p.pool_id for p in eligible]
     pool_meta = {p.pool_id: p for p in eligible}
 
+    # Defend against empty/single-row apy_history (real-data fetch may
+    # produce a tiny grid if pools have non-overlapping timestamps).
+    if apy_history is None or len(apy_history) < 2 or not eligible_ids:
+        return YieldRouterResult(config=cfg, rotations=[], equity_curve=None,
+                                 chosen_pool_path=None)
+
+    # Drop any eligible_ids missing from the apy_history columns
+    eligible_ids = [pid for pid in eligible_ids if pid in apy_history.columns]
+    if not eligible_ids:
+        return YieldRouterResult(config=cfg, rotations=[], equity_curve=None,
+                                 chosen_pool_path=None)
+    pool_meta = {pid: pool_meta[pid] for pid in eligible_ids}
+
     apy = apy_history[eligible_ids]
     forecast = apy.ewm(halflife=cfg.forecast_halflife_periods, adjust=False).mean()
 

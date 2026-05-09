@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-09T09:55:55.566548+00:00",
+  "generated_at": "2026-05-09T14:27:15.992567+00:00",
   "spec_version": "v0.3",
   "mode": "synth",
   "seed": 7,
@@ -9,12 +9,12 @@
     "data": "synth",
     "period_days": 90.0,
     "capital_base_usd": 2000.0,
-    "n_trades": 53,
-    "total_pnl_usd": 68.95,
-    "total_return_pct": 3.447,
-    "annualised_return_pct": 14.735,
-    "sharpe_annualised": 2.74,
-    "max_drawdown_pct": 2.65
+    "n_trades": 55,
+    "total_pnl_usd": 62.07,
+    "total_return_pct": 3.104,
+    "annualised_return_pct": 13.196,
+    "sharpe_annualised": 2.42,
+    "max_drawdown_pct": 3.18
   },
   "S2": {
     "strategy": "S2_yield_router",
@@ -87,8 +87,8 @@
         "S3": 10.0,
         "cash": 20.0
       },
-      "expected_apr_pct": 7.38,
-      "expected_pnl_usd_per_year": 738.0,
+      "expected_apr_pct": 7.07,
+      "expected_pnl_usd_per_year": 707.0,
       "rationale": "Heavier yield base; small S3 sleeve until real-data Sharpe lands."
     },
     "Balanced_25_50_15_10": {
@@ -98,8 +98,8 @@
         "S3": 15.0,
         "cash": 10.0
       },
-      "expected_apr_pct": 8.53,
-      "expected_pnl_usd_per_year": 853.0,
+      "expected_apr_pct": 8.14,
+      "expected_pnl_usd_per_year": 814.0,
       "rationale": "Hits the 25% Hyperliquid cap; reasonable S3 exposure."
     },
     "Aggressive_25_50_25_0": {
@@ -109,8 +109,8 @@
         "S3": 25.0,
         "cash": 0.0
       },
-      "expected_apr_pct": 9.35,
-      "expected_pnl_usd_per_year": 935.0,
+      "expected_apr_pct": 8.97,
+      "expected_pnl_usd_per_year": 897.0,
       "rationale": "Max all sleeves; no cash buffer (depends on DeFi liquidity)."
     }
   }

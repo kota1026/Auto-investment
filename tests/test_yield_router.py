@@ -62,3 +62,24 @@ def test_baseline_static_apy_matches_input_size():
     base = baseline_static_apy(history, pools[0].pool_id, 1_000.0)
     assert isinstance(base, pd.Series)
     assert len(base) == len(history)
+
+
+def test_router_returns_empty_result_on_empty_apy_history():
+    """Real-data fetch may produce an empty grid; the backtester must not crash."""
+    from auto_investment.strategies.yield_router import backtest_yield_router
+    pools, _ = synth_pool_grid(seed=10)
+    empty = pd.DataFrame()
+    res = backtest_yield_router(pools, empty)
+    assert res.n_rotations == 0
+    assert res.equity_curve is None
+
+
+def test_router_drops_pool_metas_missing_from_grid():
+    """If apy_history has a subset of pool columns, backtester uses just those."""
+    from auto_investment.strategies.yield_router import backtest_yield_router
+    pools, history = synth_pool_grid(seed=11)
+    # keep only first two pools' columns; backtester must not KeyError
+    history2 = history[[pools[0].pool_id, pools[1].pool_id]]
+    res = backtest_yield_router(pools, history2)
+    assert res.equity_curve is not None
+    assert len(res.equity_curve) == len(history2)
