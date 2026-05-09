@@ -94,12 +94,30 @@ def run_s1(seed: int) -> dict:
     n_trials = 8  # we tuned threshold over ~8 candidates
     s_adj = res.sharpe - 0.5 / np.sqrt(n_trials)
 
+    # Period vs annualised returns. S1 trades are funded from a working
+    # capital pocket equal to one leg's notional (spot fully posted; perp
+    # margined at ~25% — we use the larger spot side as the capital base).
+    period_hours = len(funding)
+    period_days = period_hours / 24.0
+    capital_base = cfg.notional_per_trade_usd
+    period_return_pct = (res.total_pnl_usd / capital_base) * 100.0
+    if period_days > 0 and capital_base > 0:
+        annualised_return_pct = (
+            (1.0 + res.total_pnl_usd / capital_base) ** (365.0 / period_days) - 1.0
+        ) * 100.0
+    else:
+        annualised_return_pct = 0.0
+
     summary = {
         "strategy": "S1_funding_arb",
         "venue_spot": cfg.spot_venue,
         "venue_perp": cfg.perp_venue,
+        "period_days": round(period_days, 1),
+        "capital_base_usd": capital_base,
         "n_trades": res.n_trades,
         "total_pnl_usd": round(res.total_pnl_usd, 2),
+        "total_return_pct": round(period_return_pct, 3),
+        "annualised_return_pct": round(annualised_return_pct, 3),
         "hit_rate": round(res.hit_rate, 3),
         "avg_funding_per_trade_usd": round(
             np.mean([t.funding_collected_usd for t in res.trades]) if res.trades else 0.0, 2
@@ -107,7 +125,7 @@ def run_s1(seed: int) -> dict:
         "avg_fees_per_trade_usd": round(
             np.mean([t.fee_paid_usd for t in res.trades]) if res.trades else 0.0, 2
         ),
-        "sharpe": round(res.sharpe, 2),
+        "sharpe_annualised": round(res.sharpe, 2),
         "sharpe_adj": round(s_adj, 2),
         "sharpe_boot_median": round(s_med, 2),
         "sharpe_boot_p5": round(s_p5, 2),
@@ -145,7 +163,8 @@ def run_s2(seed: int) -> dict:
         "strategy": "S2_yield_router",
         "n_pools": len(pools),
         "n_rotations": res.n_rotations,
-        "days": days,
+        "period_days": days,
+        "capital_base_usd": cfg.notional_usd,
         "total_return_pct": round(res.total_return_pct, 3),
         "annualised_return_pct": round(res.annualised_return_pct(), 3),
         "baseline_total_return_pct": round(float(baseline_total_pct), 3),
@@ -163,6 +182,61 @@ def run_s2(seed: int) -> dict:
     return summary
 
 
+def run_allocation(s1: dict, s2: dict, equity_usd: float = 10_000.0) -> dict:
+    """Blend S1 + S2 expected APRs under three capital allocation policies.
+
+    Each policy respects the §8 hard rule "per-venue exposure ≤ 25% of equity"
+    by capping single-venue weights. Cash buffer earns 0% in this model
+    (it's parked in stablecoins on a CEX wallet for fast deployment).
+    """
+    s1_apr = s1["annualised_return_pct"] / 100.0
+    s2_apr = s2["annualised_return_pct"] / 100.0
+    s1_dd = s1["max_drawdown_pct"] / 100.0
+    s2_dd = s2["max_drawdown_pct"] / 100.0
+
+    policies = {
+        "Conservative_25_50_25": {  # 25% S1 / 50% S2 / 25% cash
+            "weights": {"S1": 0.25, "S2": 0.50, "cash": 0.25},
+            "rationale": "Respects 25% Hyperliquid cap; S2 spread across multiple "
+                        "L2 protocols counts as ≤25% per venue; ample cash buffer.",
+        },
+        "Balanced_25_60_15": {
+            "weights": {"S1": 0.25, "S2": 0.60, "cash": 0.15},
+            "rationale": "Same Hyperliquid cap; lean more into yield, smaller buffer.",
+        },
+        "Aggressive_25_75_0": {
+            "weights": {"S1": 0.25, "S2": 0.75, "cash": 0.00},
+            "rationale": "Max yield deployment; relies on DeFi pool liquidity for exits.",
+        },
+    }
+
+    out = {}
+    for name, policy in policies.items():
+        w = policy["weights"]
+        blended_apr = w["S1"] * s1_apr + w["S2"] * s2_apr + w["cash"] * 0.0
+        # Worst-case DD if both S1 and S2 hit their max DD simultaneously
+        worst_dd = w["S1"] * s1_dd + w["S2"] * s2_dd
+        out[name] = {
+            "weights_pct": {k: round(v * 100, 1) for k, v in w.items()},
+            "expected_apr_pct": round(blended_apr * 100, 2),
+            "expected_pnl_usd_per_year": round(blended_apr * equity_usd, 0),
+            "expected_pnl_usd_per_month": round(blended_apr * equity_usd / 12, 0),
+            "worst_case_max_dd_pct": round(worst_dd * 100, 3),
+            "rationale": policy["rationale"],
+        }
+
+    print(f"\n=== Allocation analysis (equity = ${equity_usd:,.0f}) ===")
+    for name, info in out.items():
+        w = info["weights_pct"]
+        print(
+            f"  {name:30s}  S1={w['S1']:>4}%  S2={w['S2']:>4}%  cash={w['cash']:>4}%  "
+            f"→ {info['expected_apr_pct']:>5.2f}% APR "
+            f"(${info['expected_pnl_usd_per_year']:.0f}/yr, "
+            f"DD ≤ {info['worst_case_max_dd_pct']}%)"
+        )
+    return out
+
+
 def _print_table(d: dict) -> None:
     """Pretty-print a flat dict of metrics."""
     width = max(len(k) for k in d) + 2
@@ -174,6 +248,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument(
+        "--equity",
+        type=float,
+        default=10_000.0,
+        help="Total equity in USD for allocation analysis",
+    )
+    ap.add_argument(
         "--out",
         type=str,
         default="results/strategy_spec_v0.2_backtest.json",
@@ -182,17 +262,25 @@ def main() -> int:
 
     s1 = run_s1(args.seed)
     s2 = run_s2(args.seed)
+    allocations = run_allocation(s1, s2, equity_usd=args.equity)
 
     out = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "spec_version": "v0.2",
         "seed": args.seed,
+        "equity_usd": args.equity,
         "data_source": "synthetic (Phase 1 sanity)",
         "S1": s1,
         "S2": s2,
+        "allocations": allocations,
         "kpi_targets": {
             "S1": "Sharpe>=2, AdjSharpe>=1.5, BootMedian>=1.0, MaxDD<=5%",
             "S2": "AnnAPR uplift>=200bps vs baseline, MaxDD<=2%",
+        },
+        "units": {
+            "total_return_pct": "% over period_days",
+            "annualised_return_pct": "% per year (compounded)",
+            "sharpe_annualised": "annualised Sharpe ratio",
         },
     }
     out_path = REPO_ROOT / args.out

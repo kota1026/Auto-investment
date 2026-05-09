@@ -5,6 +5,10 @@
 **Author:** Claude Code (auto‑drafted, CEO‑reviewed)
 
 ## Changelog
+- **v0.2.1 (2026‑05‑09)** — Backtest output gains explicit `period_days` /
+  `capital_base_usd` fields and both `total_return_pct` (over period) and
+  `annualised_return_pct` (per‑year) so units are unambiguous. Adds §13
+  (Capital Allocation) with three blended‑APR scenarios.
 - **v0.2 (2026‑05‑09)** — CEO decisions locked in: Hyperliquid as the sole
   perp DEX, monthly external‑data budget pinned at **$0** by using free
   tiers only, all LLM reasoning routed through Claude Code Pro Max
@@ -507,6 +511,41 @@ skill (`/loop 5m /morning_signals` while iterating).
 a session disconnect; the `loop` skill only runs while a Claude Code session
 is active. We use cron for the autonomous loop and the `loop` skill for
 interactive development only.
+
+---
+
+## 13. Capital Allocation — blended APR scenarios
+
+The Phase 1 backtest computes blended expected APR across three allocation
+policies on a $10,000 portfolio. Each respects §8 hard rule #3 (per‑venue
+exposure ≤ 25% of equity); cash buffer is parked in stablecoins on a CEX
+wallet for fast deployment and earns 0% in this model.
+
+| Policy | S1 (Hyperliquid arb) | S2 (DeFi yield) | Cash | **Blended APR** | $/year on $10k | Worst‑case DD |
+|---|---|---|---|---|---|---|
+| **Conservative** | 25% | 50% | 25% | **7.29%** | $729 | ≤ 0.67% |
+| **Balanced** | 25% | 60% | 15% | **8.01%** | $801 | ≤ 0.67% |
+| **Aggressive** | 25% | 75% | 0% | **9.09%** | $909 | ≤ 0.67% |
+
+> **Caveats.** These numbers come from synthetic data and assume:
+>
+> 1. S1 funding APR averages ~14.7% on its working‑capital pocket (the
+>    backtest period saw enough funding > 1500 bps APR triggers to keep
+>    capital deployed ~20% of the time).
+> 2. S2 stable‑pool APY averages ~7.2% with near‑zero drawdown — this is
+>    materially **optimistic** because the synthetic data contains no depeg
+>    events. Real DeFi DD in a USDC March‑2023 style depeg can hit 5–10%
+>    even with risk gates.
+> 3. S1 and S2 are uncorrelated (true if Hyperliquid funding regime is
+>    independent of DeFi APY regime, which has held historically).
+> 4. We do not leverage; cash position is genuinely idle.
+>
+> Real‑data Phase 2 backtest is required to confirm. Until then, treat these
+> as design targets, not forecasts.
+
+The recommended starting allocation is **Conservative** for the first 4
+weeks of paper trading (Phase 3), stepping up to Balanced once paper
+metrics confirm IS performance.
 
 ---
 
