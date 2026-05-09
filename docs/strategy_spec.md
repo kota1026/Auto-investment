@@ -1,8 +1,17 @@
-# Auto‑Investment Strategy Specification (v0.1)
+# Auto‑Investment Strategy Specification (v0.2)
 
-**Status:** Draft for review (2026‑05‑09)
+**Status:** CEO‑signed off 2026‑05‑09. Phase 1 implementation in progress.
 **Branch:** `claude/crypto-portfolio-automation-gEv4B`
-**Author:** Claude Code (auto‑drafted, awaiting human review)
+**Author:** Claude Code (auto‑drafted, CEO‑reviewed)
+
+## Changelog
+- **v0.2 (2026‑05‑09)** — CEO decisions locked in: Hyperliquid as the sole
+  perp DEX, monthly external‑data budget pinned at **$0** by using free
+  tiers only, all LLM reasoning routed through Claude Code Pro Max
+  (no Anthropic API spend), reporting set to **daily Slack + weekly Excel**,
+  and a panic key is mandatory. Adds §11 (Cost Architecture) and §12
+  (Scheduling).
+- **v0.1 (2026‑05‑09)** — Initial draft for review.
 
 This document defines what we are going to build *before* we build it.
 The intent is that every line of trading code added to `src/auto_investment/`
@@ -77,9 +86,14 @@ exit if funding turns negative or basis blows out > 50 bps
 net 0 delta. Cap notional per venue at 5% of LP order book depth at ±10 bps.
 
 **KPI targets (in‑sample, 2024–2026 data)**
-- Sharpe ≥ 2.0 net of fees
+- Sharpe ≥ 2.0 net of fees (annualised, trade-level)
+- Adjusted Sharpe (after multiple-testing penalty) ≥ 1.5
+- **Median** block-bootstrap Sharpe ≥ 1.0 (right-skewed PnL means p5 is
+  noisy; we monitor it but don't gate on it)
 - Max DD ≤ 5%
-- Hit rate ≥ 65%
+- Hit rate is intentionally **not** an acceptance gate — funding arb is
+  a low-hit-rate, positive-expectancy profile (winners much bigger than
+  losers). We track it for monitoring only.
 
 **Failure modes**
 - Funding flips quickly → unwind cost > collected funding
@@ -203,9 +217,14 @@ Backtesting this strategy is **scientifically weak**:
 ## 4. Cost Model (used by every backtest)
 
 ```python
-# CEX
-TAKER_BPS = {"binance": 4.5, "bybit": 5.5, "okx": 5.0}
-MAKER_BPS = {"binance": 1.0, "bybit": 1.0, "okx": 0.8}
+# CEX (spot venues)
+TAKER_BPS = {"binance": 4.5, "binancejp": 7.5, "bybit": 5.5, "okx": 5.0}
+MAKER_BPS = {"binance": 1.0, "binancejp": 1.5, "bybit": 1.0, "okx": 0.8}
+
+# Perp DEX (Hyperliquid is canonical for Phase 1)
+TAKER_BPS_PERP = {"hyperliquid": 2.5, "dydx_v4": 5.0, "aevo": 5.0}
+MAKER_BPS_PERP = {"hyperliquid": 0.2, "dydx_v4": 2.0, "aevo": 2.0}
+
 SLIPPAGE_BPS = lambda notional_usd: max(2.0, 1.5 * (notional_usd / 100_000))
 
 # L2 DeFi
@@ -383,13 +402,111 @@ over the others. This maps cleanly onto the file structure already in
 
 ---
 
-## 9. Open Questions for the User (CEO) before Phase 1 starts
+## 9. CEO Decisions (resolved 2026‑05‑09)
 
-1. Which **CEX** do you actually have funded accounts on? (drives S1 & S3 venue list)
-2. Do you have a **Web3 wallet** ready for L2 DeFi, or do we provision a fresh one with `cast wallet new` on Phase 3 day 1?
-3. Are you willing to fund the **Tavily**, **Alpha Vantage**, **PitchBook (via Claude MCP)** keys for Phase 2/3? Approximate monthly ≤ $200.
-4. **Reporting cadence**: daily Slack? Weekly Excel via Claude for Excel? Both?
-5. **Stop‑the‑world rule.** Do you want a "panic key" command that liquidates everything to USDC and halts all agents? (recommended)
+| # | Question | CEO answer | Implication |
+|---|---|---|---|
+| 1 | Funded CEX accounts? | Binance Japan (spot), Hyperliquid (perp DEX) — both wallet‑signed, no SMS KYC blocker | S1/S3 use Binance Japan as spot leg, Hyperliquid as perp leg |
+| 2 | Web3 wallet for L2? | MetaMask already exists; Hyperliquid wallet is the same key | No fresh wallet needed in Phase 1 |
+| 3 | External data budget | **$0/month**. Use only free tiers; all LLM reasoning routed through Claude Code Pro Max | PitchBook / FactSet dropped; replaced with Tavily MCP free tier (1k searches/mo) + DuckDuckGo MCP for overflow |
+| 4 | Reporting cadence | **Daily Slack** push + **weekly Excel** workbook | `agents/reporter` writes both; weekly run produces `results/weekly_YYYYWW.xlsx` |
+| 5 | Panic key | **Required.** Single command that flattens all perps, withdraws DeFi to USDC, halts agents | Implemented as `python -m auto_investment.panic` and `/panic` slash command |
+
+### Perp DEX choice — Hyperliquid
+
+We evaluated Hyperliquid vs dYdX v4 vs Aevo on eight axes (liquidity, funding
+stability, ccxt support, fees, geo access, MetaMask compatibility, security
+track record, settlement asset). Hyperliquid wins on six of eight and ties
+on two; in particular it is the only candidate with native ccxt support,
+the lowest taker fee (2.5 bps), and the deepest BTC perp book (~$4–6B/24h).
+dYdX v4 and Aevo remain candidates for **Phase 3 redundancy**, not Phase 1.
+
+---
+
+## 11. Cost Architecture — staying at $0/month
+
+We treat "LLM reasoning" and "external data" as separate cost lines. The
+goal is to keep the **monthly cash cost at $0** while staying inside the
+Claude Code Pro Max plan the user already pays for.
+
+### 11.1 LLM reasoning runs through Claude Code, not the Anthropic API
+
+Every place where v0.1 of this spec proposed `anthropic.messages.create()`
+is replaced with **Claude Code (headless mode)** invoked from a slash
+command. This shifts cost from per‑token API billing onto the existing
+Pro Max subscription.
+
+| Concern | Old (API) | New (Claude Code) |
+|---|---|---|
+| Daily signal generation | `improvement_loop.py` calls `anthropic` SDK | `cron → claude -p "/morning_signals"` reads ledger + market data, emits Slack |
+| News sentiment for S4 | API call per ticker | `/news_sentiment <ticker>` slash command (uses Tavily MCP web search inside Claude Code) |
+| Weekly Excel narrative | API → openpyxl | `/weekly_report` slash command writes the workbook directly |
+| Strategy improvement loop | Monthly API batch | `/improve` slash command, weekly cron |
+| Pre‑IPO valuation reasoning | API + PitchBook MCP | `/preipo_eval` runs web search via Tavily and produces a memo |
+| Anomaly detection | API on each tick | SessionStart hook reads `results/decisions.jsonl`; Claude flags drift |
+
+Implementation path:
+- Slash commands live in `.claude/commands/<name>.md`. They are plain
+  Markdown prompts checked into the repo; no API key required.
+- Subagents live in `.claude/agents/<role>.md` (analyst, reporter, improver).
+- Hooks live in `.claude/hooks/`. The SessionStart hook ingests latest
+  positions + last 24h of decisions so any interactive session starts
+  context‑full.
+- Headless invocation pattern: `claude -p "/morning_signals" --output-format=stream-json`.
+  This counts against Pro Max quota, not API spend.
+
+### 11.2 External data — free tiers only
+
+| Source | Used by | Free tier | Expected usage | Headroom |
+|---|---|---|---|---|
+| **ccxt → Hyperliquid** | S1, S3 (perp leg), S4 (Aevo) | unlimited | 1‑min funding, 5‑min OHLCV | ✅ |
+| **ccxt → Binance Japan** | S1, S3 (spot leg) | 1200 req/min | 1‑min OHLCV | ✅ |
+| **DefiLlama Yields** | S2 | unlimited, no key | 4h pool refresh + 30‑day APY history | ✅ |
+| **Tavily MCP** | S4 news, `/improve` web search | 1,000 searches/mo | ~25/day = 750/mo | ⚠️ tight |
+| **DuckDuckGo MCP** | Overflow for Tavily | unlimited | spillover bucket | ✅ |
+| **yfinance (unofficial)** | Macro reference (DXY, SPX) | unlimited | daily | ✅ |
+| **Etherscan / Arbiscan / Basescan** | S2 gas oracle | 5 req/s, 100k/day | hourly | ✅ |
+| **CoinGecko (no key)** | Sanity prices | 10–30 req/min | per‑page rate‑limited fetch | ✅ |
+
+If Tavily exceeds 1k/mo we fall through to DuckDuckGo MCP automatically;
+both are wired in `.claude/commands/news_sentiment.md`.
+
+### 11.3 What we explicitly do NOT spend on (anymore)
+
+- **PitchBook / FactSet / S&P CapIQ via Claude MCP** — paid tiers; dropped.
+- **Alpha Vantage paid** — not needed; yfinance covers daily macro.
+- **CoinGecko Pro** — not needed at our request rate.
+- **Tavily paid plan** — not needed if we route overflow to DuckDuckGo.
+- **Anthropic API direct billing** — Claude Code Pro Max covers it.
+
+---
+
+## 12. Scheduling — cron + Claude Code headless
+
+Production loop runs as cron jobs that invoke `claude -p` in headless mode.
+This is intentionally boring; the orchestration logic lives in slash
+commands rather than in Python so we can iterate on the prompts without
+shipping code.
+
+```cron
+# Morning signal generation → Slack
+0 7 * * *  cd ~/Auto-investment && claude -p "/morning_signals" --output-format=stream-json >> logs/$(date +\%Y\%m\%d).jsonl 2>&1
+
+# Weekly Excel report (Mondays 09:00 JST)
+0 9 * * 1  cd ~/Auto-investment && claude -p "/weekly_report"   >> logs/weekly.log 2>&1
+
+# Self-improvement loop (Sundays 23:00 JST)
+0 23 * * 0 cd ~/Auto-investment && claude -p "/improve"         >> logs/improve.log 2>&1
+```
+
+For development, the same commands can be triggered interactively
+(`/morning_signals` typed into a Claude Code session) or via the `loop`
+skill (`/loop 5m /morning_signals` while iterating).
+
+**Why cron, not the Claude Code `loop` skill, in production:** cron survives
+a session disconnect; the `loop` skill only runs while a Claude Code session
+is active. We use cron for the autonomous loop and the `loop` skill for
+interactive development only.
 
 ---
 

@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-05-09T09:27:10.387493+00:00",
+  "spec_version": "v0.2",
+  "seed": 7,
+  "data_source": "synthetic (Phase 1 sanity)",
+  "S1": {
+    "strategy": "S1_funding_arb",
+    "venue_spot": "binancejp",
+    "venue_perp": "hyperliquid",
+    "n_trades": 53,
+    "total_pnl_usd": 68.95,
+    "hit_rate": 0.34,
+    "avg_funding_per_trade_usd": 7.07,
+    "avg_fees_per_trade_usd": 5.6,
+    "sharpe": 2.74,
+    "sharpe_adj": 2.56,
+    "sharpe_boot_median": 2.49,
+    "sharpe_boot_p5": -5.38,
+    "sharpe_boot_p95": 8.18,
+    "max_drawdown_pct": 2.65,
+    "kpi_pass": true
+  },
+  "S2": {
+    "strategy": "S2_yield_router",
+    "n_pools": 5,
+    "n_rotations": 7,
+    "days": 364,
+    "total_return_pct": 7.194,
+    "annualised_return_pct": 7.214,
+    "baseline_total_return_pct": 4.589,
+    "baseline_annualised_return_pct": 4.602,
+    "uplift_bps_vs_baseline": 261.2,
+    "max_drawdown_pct": 0.006,
+    "kpi_pass": true
+  },
+  "kpi_targets": {
+    "S1": "Sharpe>=2, AdjSharpe>=1.5, BootMedian>=1.0, MaxDD<=5%",
+    "S2": "AnnAPR uplift>=200bps vs baseline, MaxDD<=2%"
+  }
+}
