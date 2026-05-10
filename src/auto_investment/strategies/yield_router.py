@@ -35,11 +35,20 @@ class PoolMeta:
     risk_premium_bps: float = 0.0  # extra hurdle for risky pools
 
     def passes_filters(
-        self, *, min_tvl_usd: float = 20_000_000, min_age_days: int = 90
+        self,
+        *,
+        min_tvl_usd: float = 20_000_000,
+        min_age_days: int = 90,
+        min_audits: int = 0,
     ) -> bool:
+        # Note on `min_audits`: DefiLlama populates the `audits` field
+        # inconsistently — many high-quality pools (Aave v3, Compound v3)
+        # report `null` which we parse as 0. The real audit gate is the
+        # curated `ALLOWED_PROJECTS` whitelist in `data_fetchers/yields.py`,
+        # so we don't filter on `audits >= 1` by default.
         return (
             self.tvl_usd >= min_tvl_usd
-            and self.audits >= 1
+            and self.audits >= min_audits
             and self.age_days >= min_age_days
         )
 
@@ -52,6 +61,9 @@ class YieldRouterConfig:
     rotation_safety_factor: float = 2.0  # require 2× rotation cost to switch
     min_tvl_usd: float = 20_000_000
     min_age_days: int = 90
+    # See PoolMeta.passes_filters for why default is 0 (DefiLlama data
+    # is unreliable on this field; the protocol whitelist is the real gate).
+    min_audits: int = 0
 
 
 @dataclass
@@ -158,8 +170,14 @@ def backtest_yield_router(
       5. Accrue interest at the *realised* APY of the held pool over [t-1, t]
     """
     cfg = config or YieldRouterConfig()
-    eligible = [p for p in pools if p.passes_filters(
-        min_tvl_usd=cfg.min_tvl_usd, min_age_days=cfg.min_age_days)]
+    eligible = [
+        p for p in pools
+        if p.passes_filters(
+            min_tvl_usd=cfg.min_tvl_usd,
+            min_age_days=cfg.min_age_days,
+            min_audits=cfg.min_audits,
+        )
+    ]
     eligible_ids = [p.pool_id for p in eligible]
     pool_meta = {p.pool_id: p for p in eligible}
 
