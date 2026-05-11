@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-10T07:00:04.671822+00:00",
+  "generated_at": "2026-05-11T07:19:29.812173+00:00",
   "spec_version": "v0.3",
   "mode": "real",
   "seed": 7,
@@ -10,11 +10,11 @@
     "period_days": 90.0,
     "capital_base_usd": 2000.0,
     "n_trades": 34,
-    "total_pnl_usd": -186.28,
-    "total_return_pct": -9.314,
-    "annualised_return_pct": -32.734,
-    "sharpe_annualised": -400.73,
-    "max_drawdown_pct": 9.31
+    "total_pnl_usd": -186.19,
+    "total_return_pct": -9.309,
+    "annualised_return_pct": -32.719,
+    "sharpe_annualised": -401.51,
+    "max_drawdown_pct": 9.45
   },
   "S2": {
     "strategy": "S2_yield_router",
@@ -48,31 +48,31 @@
     "n_alerts": 13,
     "alerts": [
       {
-        "ts": "2025-12-31T00:00:00+00:00",
+        "ts": "2026-01-01T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.059,
         "current_mark": 80.59
       },
       {
-        "ts": "2026-01-03T00:00:00+00:00",
+        "ts": "2026-01-04T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.054,
         "current_mark": 80.58
       },
       {
-        "ts": "2026-01-06T00:00:00+00:00",
+        "ts": "2026-01-07T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.07,
         "current_mark": 83.52
       },
       {
-        "ts": "2026-01-09T00:00:00+00:00",
+        "ts": "2026-01-10T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.084,
         "current_mark": 88.68
       },
       {
-        "ts": "2026-01-12T00:00:00+00:00",
+        "ts": "2026-01-13T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.055,
         "current_mark": 87.41
@@ -98,8 +98,8 @@
         "S3": 15.0,
         "cash": 10.0
       },
-      "expected_apr_pct": -6.95,
-      "expected_pnl_usd_per_year": -695.0,
+      "expected_apr_pct": -6.94,
+      "expected_pnl_usd_per_year": -694.0,
       "rationale": "Hits the 25% Hyperliquid cap; reasonable S3 exposure."
     },
     "Aggressive_25_50_25_0": {
