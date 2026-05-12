@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-11T07:19:29.812173+00:00",
+  "generated_at": "2026-05-12T07:04:48.353797+00:00",
   "spec_version": "v0.3",
   "mode": "real",
   "seed": 7,
@@ -10,10 +10,10 @@
     "period_days": 90.0,
     "capital_base_usd": 2000.0,
     "n_trades": 34,
-    "total_pnl_usd": -186.19,
-    "total_return_pct": -9.309,
-    "annualised_return_pct": -32.719,
-    "sharpe_annualised": -401.51,
+    "total_pnl_usd": -186.12,
+    "total_return_pct": -9.306,
+    "annualised_return_pct": -32.71,
+    "sharpe_annualised": -403.29,
     "max_drawdown_pct": 9.45
   },
   "S2": {
@@ -48,31 +48,31 @@
     "n_alerts": 13,
     "alerts": [
       {
-        "ts": "2026-01-01T00:00:00+00:00",
+        "ts": "2026-01-02T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.059,
         "current_mark": 80.59
       },
       {
-        "ts": "2026-01-04T00:00:00+00:00",
+        "ts": "2026-01-05T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.054,
         "current_mark": 80.58
       },
       {
-        "ts": "2026-01-07T00:00:00+00:00",
+        "ts": "2026-01-08T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.07,
         "current_mark": 83.52
       },
       {
-        "ts": "2026-01-10T00:00:00+00:00",
+        "ts": "2026-01-11T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.084,
         "current_mark": 88.68
       },
       {
-        "ts": "2026-01-13T00:00:00+00:00",
+        "ts": "2026-01-14T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.055,
         "current_mark": 87.41
@@ -109,8 +109,8 @@
         "S3": 25.0,
         "cash": 0.0
       },
-      "expected_apr_pct": -6.12,
-      "expected_pnl_usd_per_year": -612.0,
+      "expected_apr_pct": -6.11,
+      "expected_pnl_usd_per_year": -611.0,
       "rationale": "Max all sleeves; no cash buffer (depends on DeFi liquidity)."
     }
   }
