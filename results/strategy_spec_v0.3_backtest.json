@@ -1,37 +1,37 @@
 {
-  "generated_at": "2026-05-16T06:42:35.048998+00:00",
+  "generated_at": "2026-05-16T06:52:21.633139+00:00",
   "spec_version": "v0.3",
-  "mode": "synth",
+  "mode": "real",
   "seed": 7,
   "equity_usd": 10000.0,
   "S1": {
     "strategy": "S1_funding_arb",
-    "data": "synth",
+    "data": "real",
     "period_days": 90.0,
     "capital_base_usd": 2000.0,
-    "n_trades": 52,
-    "total_pnl_usd": 54.46,
-    "total_return_pct": 2.723,
-    "annualised_return_pct": 11.512,
-    "sharpe_annualised": 2.26,
-    "max_drawdown_pct": 3.07
+    "n_trades": 20,
+    "total_pnl_usd": -108.22,
+    "total_return_pct": -5.411,
+    "annualised_return_pct": -20.197,
+    "sharpe_annualised": -481.83,
+    "max_drawdown_pct": 5.41
   },
   "S2": {
     "strategy": "S2_yield_router",
-    "data": "synth",
-    "n_pools": 5,
-    "n_rotations": 7,
-    "period_days": 364,
+    "data": "real",
+    "n_pools": 3,
+    "n_rotations": 1,
+    "period_days": 574,
     "capital_base_usd": 5000.0,
-    "total_return_pct": 7.194,
-    "annualised_return_pct": 7.214,
-    "baseline_annualised_return_pct": 4.602,
-    "uplift_bps_vs_baseline": 261.2,
-    "max_drawdown_pct": 0.006
+    "total_return_pct": 25.597,
+    "annualised_return_pct": 15.595,
+    "baseline_annualised_return_pct": 15.595,
+    "uplift_bps_vs_baseline": -0.0,
+    "max_drawdown_pct": -0.0
   },
   "S3": {
     "strategy": "S3_cross_exchange",
-    "data": "synth",
+    "data": "real",
     "period_days": 14.0,
     "capital_base_usd": 1000.0,
     "n_trades": 10,
@@ -44,7 +44,7 @@
   },
   "S4": {
     "strategy": "S4_preipo_alerts",
-    "data": "synth",
+    "data": "real",
     "n_alerts": 13,
     "alerts": [
       {
@@ -87,8 +87,8 @@
         "S3": 10.0,
         "cash": 20.0
       },
-      "expected_apr_pct": 6.74,
-      "expected_pnl_usd_per_year": 674.0,
+      "expected_apr_pct": 4.58,
+      "expected_pnl_usd_per_year": 458.0,
       "rationale": "Heavier yield base; small S3 sleeve until real-data Sharpe lands."
     },
     "Balanced_25_50_15_10": {
@@ -98,8 +98,8 @@
         "S3": 15.0,
         "cash": 10.0
       },
-      "expected_apr_pct": 7.72,
-      "expected_pnl_usd_per_year": 772.0,
+      "expected_apr_pct": 3.99,
+      "expected_pnl_usd_per_year": 399.0,
       "rationale": "Hits the 25% Hyperliquid cap; reasonable S3 exposure."
     },
     "Aggressive_25_50_25_0": {
@@ -109,8 +109,8 @@
         "S3": 25.0,
         "cash": 0.0
       },
-      "expected_apr_pct": 8.55,
-      "expected_pnl_usd_per_year": 855.0,
+      "expected_apr_pct": 4.81,
+      "expected_pnl_usd_per_year": 481.0,
       "rationale": "Max all sleeves; no cash buffer (depends on DeFi liquidity)."
     }
   }
