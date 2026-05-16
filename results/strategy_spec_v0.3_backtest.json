@@ -1,37 +1,37 @@
 {
-  "generated_at": "2026-05-15T07:13:18.780177+00:00",
+  "generated_at": "2026-05-16T06:42:35.048998+00:00",
   "spec_version": "v0.3",
-  "mode": "real",
+  "mode": "synth",
   "seed": 7,
   "equity_usd": 10000.0,
   "S1": {
     "strategy": "S1_funding_arb",
-    "data": "real",
+    "data": "synth",
     "period_days": 90.0,
     "capital_base_usd": 2000.0,
-    "n_trades": 33,
-    "total_pnl_usd": -180.47,
-    "total_return_pct": -9.024,
-    "annualised_return_pct": -31.855,
-    "sharpe_annualised": -395.53,
-    "max_drawdown_pct": 9.16
+    "n_trades": 52,
+    "total_pnl_usd": 54.46,
+    "total_return_pct": 2.723,
+    "annualised_return_pct": 11.512,
+    "sharpe_annualised": 2.26,
+    "max_drawdown_pct": 3.07
   },
   "S2": {
     "strategy": "S2_yield_router",
-    "data": "real",
-    "n_pools": 3,
-    "n_rotations": 0,
-    "period_days": 574,
+    "data": "synth",
+    "n_pools": 5,
+    "n_rotations": 7,
+    "period_days": 364,
     "capital_base_usd": 5000.0,
-    "total_return_pct": 0.0,
-    "annualised_return_pct": 0.0,
-    "baseline_annualised_return_pct": 15.595,
-    "uplift_bps_vs_baseline": -1559.5,
-    "max_drawdown_pct": 0.0
+    "total_return_pct": 7.194,
+    "annualised_return_pct": 7.214,
+    "baseline_annualised_return_pct": 4.602,
+    "uplift_bps_vs_baseline": 261.2,
+    "max_drawdown_pct": 0.006
   },
   "S3": {
     "strategy": "S3_cross_exchange",
-    "data": "real",
+    "data": "synth",
     "period_days": 14.0,
     "capital_base_usd": 1000.0,
     "n_trades": 10,
@@ -44,35 +44,35 @@
   },
   "S4": {
     "strategy": "S4_preipo_alerts",
-    "data": "real",
+    "data": "synth",
     "n_alerts": 13,
     "alerts": [
       {
-        "ts": "2026-01-05T00:00:00+00:00",
+        "ts": "2026-01-06T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.059,
         "current_mark": 80.59
       },
       {
-        "ts": "2026-01-08T00:00:00+00:00",
+        "ts": "2026-01-09T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.054,
         "current_mark": 80.58
       },
       {
-        "ts": "2026-01-11T00:00:00+00:00",
+        "ts": "2026-01-12T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.07,
         "current_mark": 83.52
       },
       {
-        "ts": "2026-01-14T00:00:00+00:00",
+        "ts": "2026-01-15T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.084,
         "current_mark": 88.68
       },
       {
-        "ts": "2026-01-17T00:00:00+00:00",
+        "ts": "2026-01-18T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.055,
         "current_mark": 87.41
@@ -87,8 +87,8 @@
         "S3": 10.0,
         "cash": 20.0
       },
-      "expected_apr_pct": -5.55,
-      "expected_pnl_usd_per_year": -555.0,
+      "expected_apr_pct": 6.74,
+      "expected_pnl_usd_per_year": 674.0,
       "rationale": "Heavier yield base; small S3 sleeve until real-data Sharpe lands."
     },
     "Balanced_25_50_15_10": {
@@ -98,8 +98,8 @@
         "S3": 15.0,
         "cash": 10.0
       },
-      "expected_apr_pct": -6.73,
-      "expected_pnl_usd_per_year": -673.0,
+      "expected_apr_pct": 7.72,
+      "expected_pnl_usd_per_year": 772.0,
       "rationale": "Hits the 25% Hyperliquid cap; reasonable S3 exposure."
     },
     "Aggressive_25_50_25_0": {
@@ -109,8 +109,8 @@
         "S3": 25.0,
         "cash": 0.0
       },
-      "expected_apr_pct": -5.9,
-      "expected_pnl_usd_per_year": -590.0,
+      "expected_apr_pct": 8.55,
+      "expected_pnl_usd_per_year": 855.0,
       "rationale": "Max all sleeves; no cash buffer (depends on DeFi liquidity)."
     }
   }

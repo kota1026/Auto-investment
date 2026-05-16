@@ -65,3 +65,48 @@ def test_equity_curve_length_matches_input():
     f = synth_funding_series(n=200, seed=4)
     res = backtest_funding_arb(f)
     assert len(res.equity_curve) == len(f)
+
+
+def test_persistence_gate_suppresses_single_period_spikes():
+    """A funding series with only single-period spikes above threshold
+    should not trigger entries when min_persistent_periods >= 2."""
+    n = 240
+    idx = pd.date_range("2024-01-01", periods=n, freq="1h", tz="UTC")
+    # Below threshold most of the time; isolated single-period spikes
+    base = np.full(n, 1e-5)  # ~0.88% APR (below 1000 bps default)
+    spike_locations = [50, 100, 150, 200]  # 4 isolated spikes
+    for loc in spike_locations:
+        base[loc] = 1e-3  # ~876% APR for a single hour
+    cfg = FundingArbConfig(min_persistent_periods=3)
+    res = backtest_funding_arb(pd.Series(base, index=idx), config=cfg)
+    # 6-period rolling smoothing means a single spike can't sustain
+    # 3 periods of smoothed APR > 1000 bps → no trades.
+    assert res.n_trades == 0
+
+
+def test_persistence_gate_allows_sustained_funding():
+    """A long stretch of high funding (then a flip) should trigger one
+    completed trade, proving the persistence gate doesn't permanently lock
+    out entries."""
+    n = 240
+    idx = pd.date_range("2024-01-01", periods=n, freq="1h", tz="UTC")
+    # First 180 hours: strongly positive (~876% APR), then crash to negative
+    # so the position closes before the test ends.
+    f = np.full(n, 1e-3)
+    f[180:] = -1e-3
+    cfg = FundingArbConfig(min_persistent_periods=3)
+    res = backtest_funding_arb(pd.Series(f, index=idx), config=cfg)
+    assert res.n_trades >= 1
+
+
+def test_persistence_gate_zero_is_backwards_compatible():
+    """min_persistent_periods=0 should restore the prior 'enter immediately
+    once smoothed APR crosses threshold' behaviour."""
+    f = synth_funding_series(n=24 * 60, seed=3, mean_bps_per_hour=2.0,
+                             flip_prob=0.005)
+    cfg_strict = FundingArbConfig(min_persistent_periods=3)
+    cfg_loose = FundingArbConfig(min_persistent_periods=1)
+    res_strict = backtest_funding_arb(f, config=cfg_strict)
+    res_loose = backtest_funding_arb(f, config=cfg_loose)
+    # Loose config should produce >= as many trades as strict config
+    assert res_loose.n_trades >= res_strict.n_trades

@@ -83,3 +83,27 @@ def test_router_drops_pool_metas_missing_from_grid():
     res = backtest_yield_router(pools, history2)
     assert res.equity_curve is not None
     assert len(res.equity_curve) == len(history2)
+
+
+def test_pool_with_zero_audits_is_accepted_by_default():
+    """DefiLlama returns audits=null for many pools; we parse as 0 and the
+    default config must accept them (real pool quality gate is the
+    project whitelist, not the audit field)."""
+    from auto_investment.strategies.yield_router import PoolMeta
+    p = PoolMeta(
+        pool_id="aave-v3-arb-usdc-real", chain="arbitrum",
+        protocol="aave-v3", asset="USDC",
+        tvl_usd=250_000_000, audits=0, age_days=900,
+    )
+    assert p.passes_filters() is True
+
+
+def test_pool_with_zero_audits_can_still_be_filtered_via_config():
+    """If a stricter caller wants min_audits=1, the filter must respect it."""
+    from auto_investment.strategies.yield_router import PoolMeta
+    p = PoolMeta(
+        pool_id="any", chain="arbitrum", protocol="aave-v3", asset="USDC",
+        tvl_usd=250_000_000, audits=0, age_days=900,
+    )
+    assert p.passes_filters(min_audits=1) is False
+    assert p.passes_filters(min_audits=0) is True

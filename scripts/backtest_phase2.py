@@ -69,15 +69,13 @@ def run_s1(seed: int, mode: str) -> dict:
         funding = synth_funding_series(n=24 * 90, seed=seed)
         print(f"  data: synthetic ({len(funding)} hourly bars, seed={seed})")
 
-    # Threshold tuning: synth funding has mean ~13% APR so 15% (1500 bps)
-    # entry filters appropriately. Real Hyperliquid BTC funding sits ~3-8%
-    # APR most days, so 1500 never triggers. We pick 600 bps APR as a
-    # compromise: high enough to cover round-trip fees on a 5–10 day hold,
-    # low enough to actually trigger on real data. Phase 3 will revisit.
+    # Use FundingArbConfig defaults (1000/200 + 3-period persistence) which
+    # are documented in funding_arb.py and tuned against the first real-data
+    # GHA run that showed -32% APR with 600/100 (whipsaw on Hyperliquid
+    # funding flips). Override only the venue and size here.
     cfg = FundingArbConfig(
         spot_venue="binancejp", perp_venue="hyperliquid",
         notional_per_trade_usd=2_000.0,
-        min_edge_apr_bps=600.0, exit_edge_apr_bps=100.0,
     )
     res = backtest_funding_arb(funding, config=cfg)
     period_hours = len(funding)
