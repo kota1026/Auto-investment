@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-01T07:36:02.378526+00:00",
+  "generated_at": "2026-07-02T07:13:06.708131+00:00",
   "spec_version": "v0.3",
   "mode": "real",
   "seed": 7,
@@ -25,8 +25,8 @@
     "capital_base_usd": 5000.0,
     "total_return_pct": 25.597,
     "annualised_return_pct": 15.595,
-    "baseline_annualised_return_pct": 8.764,
-    "uplift_bps_vs_baseline": 683.1,
+    "baseline_annualised_return_pct": 15.595,
+    "uplift_bps_vs_baseline": -0.0,
     "max_drawdown_pct": -0.0
   },
   "S3": {
@@ -48,31 +48,31 @@
     "n_alerts": 13,
     "alerts": [
       {
-        "ts": "2026-02-21T00:00:00+00:00",
+        "ts": "2026-02-22T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.059,
         "current_mark": 80.59
       },
       {
-        "ts": "2026-02-24T00:00:00+00:00",
+        "ts": "2026-02-25T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.054,
         "current_mark": 80.58
       },
       {
-        "ts": "2026-02-27T00:00:00+00:00",
+        "ts": "2026-02-28T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.07,
         "current_mark": 83.52
       },
       {
-        "ts": "2026-03-02T00:00:00+00:00",
+        "ts": "2026-03-03T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.084,
         "current_mark": 88.68
       },
       {
-        "ts": "2026-03-05T00:00:00+00:00",
+        "ts": "2026-03-06T00:00:00+00:00",
         "symbol": "SPACEX",
         "delta_prob": 0.055,
         "current_mark": 87.41
