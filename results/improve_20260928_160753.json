@@ -1,0 +1,56 @@
+{
+  "mode": "P2",
+  "initial_params": {
+    "ema_fast": 12,
+    "ema_slow": 26,
+    "rsi_threshold": 50.0,
+    "sl_atr_mult": 1.5,
+    "tp_atr_mult": 3.0
+  },
+  "initial_metrics": {
+    "n_trades": 61,
+    "win_rate": 0.3607,
+    "avg_rr": 1.944,
+    "total_return_pct": 7.783,
+    "max_drawdown_pct": -19.255,
+    "final_equity": 32.33,
+    "ic_mean": -0.2267,
+    "ic_std": 0.1571,
+    "icir": -1.443,
+    "factor_explained_fraction": 0.7633,
+    "factor_loadings": {
+      "vol_20": 19.011631,
+      "mom_20": 14.384586,
+      "volume_z": -0.00204,
+      "atr_pct": -7.980902
+    }
+  },
+  "final_params": {
+    "ema_fast": 12,
+    "ema_slow": 26,
+    "rsi_threshold": 50.0,
+    "sl_atr_mult": 1.5,
+    "tp_atr_mult": 3.0
+  },
+  "final_metrics": {
+    "n_trades": 61,
+    "win_rate": 0.3607,
+    "avg_rr": 1.944,
+    "total_return_pct": 7.783,
+    "max_drawdown_pct": -19.255,
+    "final_equity": 32.33,
+    "ic_mean": -0.2267,
+    "ic_std": 0.1571,
+    "icir": -1.443,
+    "factor_explained_fraction": 0.7633,
+    "factor_loadings": {
+      "vol_20": 19.011631,
+      "mom_20": 14.384586,
+      "volume_z": -0.00204,
+      "atr_pct": -7.980902
+    }
+  },
+  "history": [],
+  "converged": false,
+  "iterations_used": 0
+}
