@@ -27,8 +27,10 @@ on:
         default: "5"
         type: string
 
-  schedule:
-    - cron: "0 8 * * 1"  # Monday 08:00 UTC
+  # Scheduled run disabled to stop recurring Anthropic API (Opus) charges.
+  # Re-enable by uncommenting below; manual runs via workflow_dispatch still work.
+  # schedule:
+  #   - cron: "0 8 * * 1"  # Monday 08:00 UTC
 
 permissions:
   contents: write
